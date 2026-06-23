@@ -1,0 +1,28 @@
+﻿# Large data files exceeding GitHub limits
+*.xlsx
+*.csv
+*.pptx
+
+# Specific exclusions
+AMCR PL Results YOY.xlsx
+SportsSight - Cricket - Encord Brief.pptx
+pls6.csv
+pls6_temp.csv
+temporary2.csv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary/lock files
+*.lock
+~$*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
