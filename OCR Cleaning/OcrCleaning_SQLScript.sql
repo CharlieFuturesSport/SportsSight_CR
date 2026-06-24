@@ -73,7 +73,7 @@ FROM
 (
     VALUES
         -- Reported_brand, Reported_creative, AccessFlag
-        ('Chapel Down', '', 'Nordic')
+        ('Peroni', '', 'ecb_2026')
 ) I (Reported_brand, Reported_creative, AccessFlag)
 CROSS APPLY
 (
@@ -100,7 +100,7 @@ WHERE NOT EXISTS
 -- --------------------
 
 DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'Nordic'
+SET @specificAccessFlag = 'ecb_2026'
 
 INSERT INTO Toolkit_Cleaned_OCR_Results
 SELECT --TOP 100
@@ -156,7 +156,7 @@ FROM (
 -- --------------------
 
 DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'Nordic'
+SET @specificAccessFlag = 'ecb_2026'
 
 insert into Toolkit_Cleaned_OCR_Results
 SELECT --TOP 100
@@ -219,7 +219,7 @@ WHERE SportsEvent IN
 
 -- IDENTIFY SEARCH TERMS
 DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'Nordic'
+SET @specificAccessFlag = 'ecb_2026'
 DECLARE @autoAcceptMaxOcrCount INT
 SET @autoAcceptMaxOcrCount = 3
 
@@ -447,7 +447,7 @@ WHERE H.Decision = 'ACCEPT'
 
 -- Step 3.3.4: Rerun AUTOMATED exact-match insert after new rules were added
 DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'Nordic'
+SET @specificAccessFlag = 'ecb_2026'
 
 insert into Toolkit_Cleaned_OCR_Results
 SELECT-- TOP 100
@@ -510,7 +510,7 @@ WHERE SportsEvent IN
 -- --------------------
 
 DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'Nordic'
+SET @specificAccessFlag = 'ecb_2026'
 
 --MANUAL AS PART OF A STRING
 INSERT INTO Toolkit_Cleaned_OCR_Results
