@@ -1,0 +1,3 @@
+=IF(VALUE(TRIM(C2&""))=1,
+"INSERT INTO Toolkit_OCR_Cleaning_Rules (Row_addition_source,Row_manually_confirmed,SportsEvent,Reported_brand,Reported_creative,AccessFlag,Primary_search_term,[Len],exact_match_required,substring_search_allowed,Min_levenshtein_value,other_on_screen_text_required) VALUES ('Automated',1,'','"&SUBSTITUTE(D2,"'","''")&"','"&SUBSTITUTE(E2,"'","''")&"','"&SUBSTITUTE(F2,"'","''")&"',N'"&SUBSTITUTE(G2,"'","''")&"',"&H2&","&I2&","&J2&","&K2&",'' );",
+"")
