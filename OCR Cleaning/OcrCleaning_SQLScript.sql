@@ -73,7 +73,23 @@ FROM
 (
     VALUES
         -- Reported_brand, Reported_creative, AccessFlag
-        ('Peroni', '', 'ecb_2026')
+        ('Aironix', '', 'ecb_2026'),
+('Castore', '', 'ecb_2026'),
+('Connect it', '', 'ecb_2026'),
+('Dafabet', '', 'ecb_2026'),
+('Hendy', '', 'ecb_2026'),
+('Kukri', '', 'ecb_2026'),
+('Pangea', '', 'ecb_2026'),
+('ScS', '', 'ecb_2026'),
+('Trade Nation', '', 'ecb_2026'),
+('Vitality', '', 'ecb_2026'),
+('Vitality Blast', '', 'ecb_2026'),
+('Chapel Down', '', 'ecb_2026'),
+
+('Vitality', 'Health Insurance', 'ecb_2026'),
+('Vitality', 'Life Insurance', 'ecb_2026'),
+('Vitality', 'Health and Life Insurance', 'ecb_2026'),
+('Vitality', 'Health & Life Insurance', 'ecb_2026')
 ) I (Reported_brand, Reported_creative, AccessFlag)
 CROSS APPLY
 (
