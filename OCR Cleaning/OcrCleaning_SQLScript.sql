@@ -53,7 +53,7 @@ SELECT
     'Human',
     1,
     I.Reported_brand,
-    NULLIF(I.Reported_creative, ''),
+    I.Reported_creative,
     I.AccessFlag,
     X.Primary_Search_Term,
     LEN(X.Primary_Search_Term),
