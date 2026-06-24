@@ -41,11 +41,11 @@ and Row_addition_source = 'human'
 --   Row_addition_source = 'Human'
 --   Row_manually_confirmed = 1
 --   exact_match_required = 0
---   substring_search_allowed = 1
 --   other_on_screen_text_required = ''
 -- Derived fields:
 --   Primary_Search_Term = IF(Reported_creative blank, Reported_brand, Reported_creative)
 --   SearchTermLen = LEN(Primary_Search_Term)
+--   substring_search_allowed = IF(LEN(Primary_Search_Term)>4,1,0)
 --   min_levenshtein_value = IF(LEN(Primary_Search_Term)<3,1,0.75-(LEN(Primary_Search_Term)*0.0075))
 
 INSERT INTO Toolkit_OCR_Cleaning_Rules
@@ -58,7 +58,10 @@ SELECT
     X.Primary_Search_Term,
     LEN(X.Primary_Search_Term),
     0,
-    1,
+    CASE
+        WHEN LEN(X.Primary_Search_Term) > 4 THEN 1
+        ELSE 0
+    END,
     CAST(
         CASE
             WHEN LEN(X.Primary_Search_Term) < 3 THEN 1
