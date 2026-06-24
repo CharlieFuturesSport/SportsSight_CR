@@ -29,7 +29,7 @@ INSERT INTO #SportEvents VALUES
 -- ============================================================
 
 -- Stage 2A: Check existing Human rules for this AccessFlag
-select * from Toolkit_OCR_cleaning_rules where AccessFlag = 'nordic'
+select * from Toolkit_OCR_cleaning_rules where AccessFlag = 'ecb_2026'
 and Row_addition_source = 'human'
 
 -- Stage 2B: Add new Human rules (edit only VALUES rows)
