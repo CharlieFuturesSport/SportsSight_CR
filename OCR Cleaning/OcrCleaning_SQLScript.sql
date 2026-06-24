@@ -346,7 +346,7 @@ SELECT
     PercentDistance,
     ReviewAction
 FROM #Stage33AutoAcceptToInsert
-ORDER BY ocrCount DESC, Reported_brand, PercentDistance DESC
+ORDER BY Reported_brand, Reported_creative, ocrCount DESC
 
 -- Step 3.3.1B: Insert AUTO_ACCEPT rows into Cleaning Rules
 INSERT INTO Toolkit_OCR_Cleaning_Rules
@@ -412,7 +412,7 @@ SET Decision = 'REJECT'
 WHERE Decision = 'PENDING'
 AND Primary_Search_Term IN
 (
-    'ADDERS',
+    'TermA',
     'TermB'
 )
 
