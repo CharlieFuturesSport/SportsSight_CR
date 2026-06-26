@@ -4,6 +4,9 @@ from typing import List, Dict, Tuple, Optional
 from collections import defaultdict
 import sql_helper_LR as lr
 import os
+import re
+from urllib.parse import urlencode
+from datetime import datetime
 
 results_columns = [
     'ModelType', 'Guid_ID', 'Sport', 'Event', 'Filename', 'Brand', 'Asset',
@@ -248,9 +251,104 @@ class TVGIDetector:
             'sample_text': cdf['cleaned_text'].iloc[0] if 'cleaned_text' in cdf else ""
         }
     
-    def format_for_excel(self, report_df: pd.DataFrame) -> pd.DataFrame:
-        """Truncates long lists specifically for Excel readability."""
+    def format_for_excel(self,
+                         report_df: pd.DataFrame,
+                         review_base_url: Optional[str] = None,
+                         review_folder: Optional[str] = None,
+                         review_database: Optional[str] = None,
+                         classifications_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+        """Adds helper link columns and truncates long lists for Excel readability."""
         out = report_df.copy()
+
+        def extract_event(cluster_id: str) -> str:
+            if not isinstance(cluster_id, str):
+                return ""
+            # Handles both: TVGI_<event>/_<id> and TVGI_<event>_<id>
+            if cluster_id.startswith('TVGI_'):
+                body = cluster_id[5:]
+                if '/_' in body:
+                    return body.split('/_')[0].rstrip('/')
+                if '_' in body:
+                    return body.rsplit('_', 1)[0].rstrip('/')
+            return ""
+
+        def first_image_name(val):
+            if isinstance(val, list) and len(val) > 0:
+                return str(val[0]).split('/')[-1]
+            if isinstance(val, str):
+                s = val.strip()
+                # If stored as a Python-like list string, parse first element.
+                if s.startswith('[') and s.endswith(']'):
+                    m = re.search(r"'([^']+\.(?:jpg|jpeg|png|webp))'", s, flags=re.IGNORECASE)
+                    if m:
+                        return m.group(1).split('/')[-1]
+                # Fallback: plain filename/path string.
+                if '.' in s and '/' in s:
+                    return s.split('/')[-1]
+                if '.' in s:
+                    return s
+            return ""
+
+        out['event_clean'] = out['cluster_id'].apply(extract_event)
+        out['first_image'] = out['filenames'].apply(first_image_name)
+
+        # Optional enrichment: attach shot type prediction/confidence per representative frame.
+        if classifications_df is not None and not classifications_df.empty:
+            cls = classifications_df.copy()
+
+            # Resolve expected column names safely.
+            event_col = next((c for c in ['SportsEvent', 'Event', 'event'] if c in cls.columns), None)
+            image_col = next((c for c in ['Image', 'Filename', 'image', 'filename'] if c in cls.columns), None)
+            pred_col = next((c for c in ['Prediction', 'prediction', 'ShotType', 'shot_type'] if c in cls.columns), None)
+            conf_col = next((c for c in ['Confidence', 'confidence', 'Probability', 'probability'] if c in cls.columns), None)
+
+            if event_col and image_col and pred_col:
+                cls = cls[[event_col, image_col, pred_col] + ([conf_col] if conf_col else [])].copy()
+                cls['event_clean'] = cls[event_col].astype(str).str.strip().str.rstrip('/')
+                cls['first_image'] = cls[image_col].astype(str).str.split('/').str[-1].str.strip()
+
+                if conf_col:
+                    cls[conf_col] = pd.to_numeric(cls[conf_col], errors='coerce')
+                    cls = cls.sort_values(conf_col, ascending=False)
+
+                cls = cls.drop_duplicates(subset=['event_clean', 'first_image'], keep='first')
+                lookup_cols = ['event_clean', 'first_image', pred_col] + ([conf_col] if conf_col else [])
+                out = out.merge(cls[lookup_cols], on=['event_clean', 'first_image'], how='left')
+
+                out['shot_type_prediction'] = out[pred_col]
+                if conf_col:
+                    out['shot_type_confidence'] = out[conf_col]
+                else:
+                    out['shot_type_confidence'] = np.nan
+
+                # Convenience boolean: quickly filter likely TVGI shot types in Excel.
+                out['shot_type_is_tvgi'] = out['shot_type_prediction'].astype(str).str.contains('tvgi|tv graphics|tv graphic', case=False, regex=True)
+
+                drop_cols = [pred_col]
+                if conf_col:
+                    drop_cols.append(conf_col)
+                out = out.drop(columns=[c for c in drop_cols if c in out.columns])
+
+        if review_base_url and review_folder and review_database:
+            def build_link(row):
+                if not row['event_clean']:
+                    return ""
+                params = {
+                    'FolderName': review_folder,
+                    'DatabaseName': review_database,
+                    'SportsEvent': row['event_clean']
+                }
+                if row['first_image']:
+                    params['ImageName'] = row['first_image']
+                    params['ScrollAmountForward'] = 1
+                return f"{review_base_url}?{urlencode(params)}"
+
+            out['open_link'] = out.apply(build_link, axis=1)
+            # Excel-friendly clickable link so users can click directly in the sheet.
+            out['open_link_click'] = out['open_link'].apply(
+                lambda u: '' if not isinstance(u, str) or not u else f'=HYPERLINK("{u.replace('"', '""')}","Open")'
+            )
+
         for col in ['filenames', 'record_ids']:
             out[
 col] = out[col].apply(lambda x: f"{x[:10]}...[{len(x)-20} more]...{x[-10:]}" if len(x) > 20 else x)
@@ -263,7 +361,12 @@ def ocr_coords_toSQL_proc(ocrResults, events, output_path, iteration
                     ,position_tolerance=0.05
                     ,size_tolerance=0.05
                     ,angle_tolerance=2.0
-                    ,min_frames=10):
+                    ,min_frames=10
+                    ,review_base_url=None
+                    ,review_folder=None
+                    ,review_database=None
+                    ,classifications_df=None):
+    ref_table = pd.DataFrame()
     
     detector = TVGIDetector(
         position_tolerance=position_tolerance,
@@ -283,16 +386,40 @@ def ocr_coords_toSQL_proc(ocrResults, events, output_path, iteration
     report = report[report['total_frames'] >= min_frames]
     report = report.sort_values(by='total_frames', ascending=False)
     
-    # Save for User Input
-    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-        detector.format_for_excel(report).to_excel(writer, sheet_name='TVGI_report', index=False)
-        pd.DataFrame(columns=['cluster_id','Brand','Asset']).to_excel(writer, sheet_name='Accepted_clusters', index=False)
-    
-    print(f"Report saved. Please update 'Accepted_clusters' tab in: {output_path}")
+    # Save for User Input; if target file is locked, write a timestamped fallback.
+    save_path = output_path
+    try:
+        with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
+            detector.format_for_excel(
+                report,
+                review_base_url=review_base_url,
+                review_folder=review_folder,
+                review_database=review_database,
+                classifications_df=classifications_df
+            ).to_excel(writer, sheet_name='TVGI_report', index=False)
+            pd.DataFrame(columns=['cluster_id','Brand','Asset']).to_excel(writer, sheet_name='Accepted_clusters', index=False)
+    except PermissionError:
+        base, ext = os.path.splitext(output_path)
+        if not ext:
+            ext = '.xlsx'
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        save_path = f"{base}_{timestamp}{ext}"
+        with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
+            detector.format_for_excel(
+                report,
+                review_base_url=review_base_url,
+                review_folder=review_folder,
+                review_database=review_database,
+                classifications_df=classifications_df
+            ).to_excel(writer, sheet_name='TVGI_report', index=False)
+            pd.DataFrame(columns=['cluster_id','Brand','Asset']).to_excel(writer, sheet_name='Accepted_clusters', index=False)
+        print(f"Primary report path was locked. Saved fallback report to: {save_path}")
+
+    print(f"Report saved. Please update 'Accepted_clusters' tab in: {save_path}")
 
     # Handle User Input
     if input("Have you saved the accepted results? (Y/N): ").upper() == 'Y':
-        accepted_input = pd.read_excel(output_path, sheet_name='Accepted_clusters')
+        accepted_input = pd.read_excel(save_path, sheet_name='Accepted_clusters')
         
         if not accepted_input.empty:       
             # Join user choices back to the 'report' variable to get info about the location of the coordinates
