@@ -8,24 +8,38 @@ import numpy as np
 import sys
 import time
 import math
+import os
 from datetime import datetime
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\Python Helper Scripts')
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+helper_candidates = [
+    os.path.join(repo_root, 'Python Helper Scripts'),
+    os.path.join(os.path.dirname(repo_root), 'Python Helper Scripts'),
+]
+for helper_path in helper_candidates:
+    if os.path.isdir(helper_path):
+        sys.path.insert(0, helper_path)
+        break
 import sql_helper_LR as lr
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\OCR Coords')
+sys.path.insert(0, os.path.join(repo_root, 'OCR Coords'))
 import SportsSight_OCR_coordinates as coord
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Cricket')
+sys.path.insert(0, os.path.join(repo_root, 'Post-Processing', 'Cricket'))
 import SportsSight_functions_ECB as func
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-inputFile    = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Cricket\SportSight - Brand Asset Methodology - ECB (new v2).xlsx"
-output_folder = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Cricket"
+inputFile = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight\Cricket\SportSight - Brand Asset Methodology - ECB (new v2).xlsx"
+output_folder = os.path.join(os.path.dirname(__file__), "outputs")
+os.makedirs(output_folder, exist_ok=True)
 
+listOfEvents = [
+    "12729_220526_Mens_Blast_Group_Som_v_Ham"
+]
 sport       = 'cricket'
 sqlServer   = 'inf'
 sqlDatabase = 'ECB'
@@ -36,11 +50,7 @@ ocr_position_tolerance = 0.05
 ocr_size_tolerance     = 0.2
 ocr_angle_tolerance    = 5.0
 
-listOfEvents = [
-'12706_020626_Women_3rdT20I_Eng_v_Ind',
-'12705_300526_Women_2ndT20I_Eng_v_Ind',
-'12704_280526_Women_1stT20I_Eng_v_Ind'
-]
+
 
 missingOCRStep = True
 
@@ -155,6 +165,7 @@ if not ocr_coords.empty:
             events_to_sample = [listOfEvents[n * y] for y in range(5)]
 
         events_str = ",".join(f"'{e}/'" for e in events_to_sample)
+        class_events_str = ",".join(f"'{e}'" for e in events_to_sample)
         ocrResults_sample = lr.fromSQLquery(f"""
             SELECT * FROM Toolkit_Cleaned_OCR_Results
             WHERE SportsEvent IN ({events_str})
@@ -162,18 +173,32 @@ if not ocr_coords.empty:
         """, sqlServer, sqlDatabase)
         print("Cleaned OCR results collected.")
 
+        # Optional shot-type enrichment for the TVGI Excel report.
+        try:
+            classResults_sample = lr.fromSQLquery(f"""
+                SELECT SportsEvent, Image, Prediction, Confidence
+                FROM SportsSight_Raw_Classifications
+                WHERE SportsEvent IN ({class_events_str})
+            """, sqlServer, sqlDatabase)
+        except Exception:
+            classResults_sample = pd.DataFrame()
+
         ocr_tvgi_coords = coord.ocr_coords_toSQL_proc(
             ocrResults_sample,
             [e + '/' for e in events_to_sample],
             output_path=output_path,
             iteration=iteration,
             group_events=True,
-            brands=['Vitality'],
-            cleaned_text_list=['Vitality'],
+            brands=None,
+            cleaned_text_list=None,
             position_tolerance=ocr_position_tolerance,
             size_tolerance=ocr_size_tolerance,
             angle_tolerance=ocr_angle_tolerance,
             min_frames=10,
+            review_base_url='https://sportssight-imagereview-fxgwfpddc4ewdfht.uksouth-01.azurewebsites.net/DatabaseBrandAssets',
+            review_folder='cricket',
+            review_database='ECB',
+            classifications_df=classResults_sample,
         )
 
         sql_tvgi_table = input('Name for the new OCR TVGI coordinate table in SQL: ')
@@ -441,10 +466,13 @@ for eventName in listOfEvents:
     print(f"Processing: {eventName}")
     all_results = pd.concat([all_results, exposurePerEvent(eventName)], ignore_index=True)
 
-all_results.to_csv(
-    r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Cricket\pls_ECB_WIT20_v2.csv',
-    index=False
-)
+csv_output_path = os.path.join(output_folder, 'pls_ECB_WIT20_v2.csv')
+try:
+    all_results.to_csv(csv_output_path, index=False)
+except PermissionError:
+    fallback_path = os.path.join(output_folder, f'pls_ECB_WIT20_v2_{dateStamp}.csv')
+    print(f"Warning: could not write {csv_output_path} (file may be open). Writing fallback CSV to {fallback_path}")
+    all_results.to_csv(fallback_path, index=False)
 
 # ============================================================================
 # UPLOAD TO SQL
@@ -453,8 +481,30 @@ all_results.to_csv(
 def upload_to_sql(df, label='results'):
     """Upload a DataFrame to Toolkit_AzureModels_CombinedResults in chunks."""
     chunk_size = 10000
-    chunks = np.array_split(df, max(1, len(df) // chunk_size))
-    print(f"Uploading {label}: {len(df)} rows in {len(chunks)} chunks.")
+    if df is None or df.empty:
+        print(f"No rows to upload for {label}.")
+        return
+
+    # Keep only rows that satisfy NOT NULL constraints in the SQL target table.
+    required_cols = ['ModelType', 'Sport', 'Event', 'Filename', 'Probability']
+    required_cols = [c for c in required_cols if c in df.columns]
+    upload_df = df.copy()
+    for col in required_cols:
+        if upload_df[col].dtype == object:
+            upload_df[col] = upload_df[col].replace(r'^\s*$', np.nan, regex=True)
+
+    valid_mask = upload_df[required_cols].notna().all(axis=1) if required_cols else pd.Series(True, index=upload_df.index)
+    dropped = int((~valid_mask).sum())
+    if dropped > 0:
+        print(f"Filtered out {dropped} rows with missing required fields ({', '.join(required_cols)}).")
+    upload_df = upload_df.loc[valid_mask].copy()
+
+    if upload_df.empty:
+        print(f"No valid rows remain for upload after filtering {label}.")
+        return
+
+    chunks = [upload_df.iloc[i:i + chunk_size] for i in range(0, len(upload_df), chunk_size)]
+    print(f"Uploading {label}: {len(upload_df)} valid rows in {len(chunks)} chunks.")
     for i, chunk in enumerate(chunks):
         try:
             print(f"  Chunk {i+1}/{len(chunks)} ({len(chunk)} rows)...")

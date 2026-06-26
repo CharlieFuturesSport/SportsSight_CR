@@ -57,9 +57,7 @@ So, this notebook covers how we check the AMCR for missing brands, touchpoints a
 		SportsEvent VARCHAR(100)
 	)
 	INSERT INTO #SportEvents VALUES
-	('12706_020626_Women_3rdT20I_Eng_v_Ind'),
-	('12705_300526_Women_2ndT20I_Eng_v_Ind'),
-	('12704_280526_Women_1stT20I_Eng_v_Ind')
+	('12729_220526_Mens_Blast_Group_Som_v_Ham')
 
 
 
@@ -607,4 +605,4 @@ GROUP BY PR_Name, ProgrammeID, PRO.StartTime, PRO.EndTime
 
 
 -- Check field for the screen size
-SELECT MAX(ScreenSize), MIN(ScreenSize) FROM Exposure WHERE ProjectID = 858
+SELECT MAX(ScreenSize), MIN(ScreenSize) FROM Exposure WHERE ProjectID = @TvTrackProjectID
