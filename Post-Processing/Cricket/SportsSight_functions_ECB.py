@@ -56,7 +56,13 @@ def calculate_iou_vectorized(boxes1, boxes2):
     boxes2_area = (boxes2[:, :, 2] - boxes2[:, :, 0]) * (boxes2[:, :, 3] - boxes2[:, :, 1])
     
     union_area = boxes1_area + boxes2_area - intersection_area
-    iou = np.where(union_area > 0, intersection_area / union_area, 0)
+    # Use masked division so invalid divisions are never evaluated.
+    iou = np.divide(
+        intersection_area,
+        union_area,
+        out=np.zeros_like(intersection_area, dtype=float),
+        where=union_area > 0,
+    )
     
     return iou
 
