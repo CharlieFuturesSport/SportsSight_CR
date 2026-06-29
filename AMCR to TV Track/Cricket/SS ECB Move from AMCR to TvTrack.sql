@@ -20,12 +20,7 @@
 		FROM Client
 		WHERE Client_Name LIKE '%ecb%'
 */
-
--- Check for project name
-	SELECT
-    *
-	FROM Project
-	WHERE ProjectName like '%ecb%'
+ 
 
 
 -- If both above are empty, launch the TvTrack application and create.
@@ -33,15 +28,13 @@
 
 
 
-INSERT INTO dbo.TP_Client (TP_ID, Client_ID)
-SELECT 9746, 29
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM dbo.TP_Client
-    WHERE TP_ID = 9746
-      AND Client_ID = 29
-);
+SELECT DB_NAME() AS CurrentDB;
+SELECT * 
+FROM dbo.TP_Client
+WHERE TP_ID = 9746 AND Client_ID = 29;
 
+
+SELECT @@VERSION AS SqlVersion, DB_NAME() AS CurrentDB;
 
 
 	-- Phase 2 -- PhotoTextTrack - Brand/TP/TP_Client Updates
@@ -68,8 +61,8 @@ So, this notebook covers how we check the AMCR for missing brands, touchpoints a
 		ID INT IDENTITY(1,1),
 		SportsEvent VARCHAR(100)
 	)
-	INSERT INTO #SportEvents VALUES
-	('12729_220526_Mens_Blast_Group_Som_v_Ham')
+INSERT INTO #SportEvents VALUES
+('12678_050626_Men_1stTest_Eng_v_Nzl_Day_2');
 
 
 
@@ -195,24 +188,8 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 
 
 
-INSERT INTO dbo.Brands (BrandName)
-SELECT v.BrandName
-FROM (VALUES
-    ('Aironix'),
-    ('Chaucer'),
-    ('Connect it'),
-    ('Mitchell Associates'),
-    ('Pangea'),
-    ('Synertec'),
-    ('Thatchers'),
-    ('Vitality Blast'),
-    ('WPA Health')
-) v(BrandName)
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM dbo.Brands b
-    WHERE LTRIM(RTRIM(b.BrandName)) = LTRIM(RTRIM(v.BrandName))
-);
+
+
 
 
 	-- Phase 3 - Inserting into TvTrack.Exposure
@@ -619,7 +596,7 @@ WHERE NOT EXISTS (
 
 -- Phase 4 -- Checking exposure table
 DECLARE @phase4ProjectId INT = NULL;
-DECLARE @phase4EventName VARCHAR(100) = '12729_220526_Mens_Blast_Group_Som_v_Ham';
+DECLARE @phase4EventName VARCHAR(100) = '12678_050626_Men_1stTest_Eng_v_Nzl_Day_2';
 
 IF OBJECT_ID('tempdb..#variables') IS NOT NULL
 BEGIN

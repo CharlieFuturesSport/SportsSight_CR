@@ -33,12 +33,12 @@ import SportsSight_functions_ECB as func
 # CONFIGURATION
 # ============================================================================
 
-inputFile = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight\Cricket\SportSight - Brand Asset Methodology - ECB (new v2).xlsx"
+inputFile = os.path.join(os.path.dirname(__file__), "SportSight - Brand Asset Methodology - ECB  - mensttest1.xlsx")
 output_folder = os.path.join(os.path.dirname(__file__), "outputs")
 os.makedirs(output_folder, exist_ok=True)
 
 listOfEvents = [
-    "12729_220526_Mens_Blast_Group_Som_v_Ham"
+'12678_050626_Men_1stTest_Eng_v_Nzl_Day_2/'
 ]
 sport       = 'cricket'
 sqlServer   = 'inf'
@@ -164,8 +164,8 @@ if not ocr_coords.empty:
             n = math.floor(events_number / 5.0)
             events_to_sample = [listOfEvents[n * y] for y in range(5)]
 
-        events_str = ",".join(f"'{e}/'" for e in events_to_sample)
-        class_events_str = ",".join(f"'{e}'" for e in events_to_sample)
+        events_str = ",".join(f"'{e}'" for e in events_to_sample)
+        class_events_str = ",".join(f"'{e.rstrip('/')}'" for e in events_to_sample)
         ocrResults_sample = lr.fromSQLquery(f"""
             SELECT * FROM Toolkit_Cleaned_OCR_Results
             WHERE SportsEvent IN ({events_str})
@@ -185,7 +185,7 @@ if not ocr_coords.empty:
 
         ocr_tvgi_coords = coord.ocr_coords_toSQL_proc(
             ocrResults_sample,
-            [e + '/' for e in events_to_sample],
+            events_to_sample,
             output_path=output_path,
             iteration=iteration,
             group_events=True,
@@ -231,11 +231,11 @@ def exposurePerEvent(match):
         try:
             ocrResults = lr.fromSQLquery(f"""
                 SELECT * FROM Toolkit_Cleaned_OCR_Results
-                WHERE SportsEvent LIKE '{match}/'
+                WHERE SportsEvent = '{match}'
             """, sqlServer, sqlDatabase)
             imageSize_df = lr.fromSQLquery(f"""
                 SELECT imageHeight, imageWidth FROM Toolkit_Cleaned_OCR_Results
-                WHERE SportsEvent LIKE '{match}/'
+                WHERE SportsEvent = '{match}'
                 GROUP BY imageHeight, imageWidth
             """, sqlServer, sqlDatabase)
             imageWidth  = int(imageSize_df.iloc[0, 1])
