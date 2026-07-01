@@ -636,8 +636,8 @@ def missing_ocr_proc(brandAsset_method, ocrResults, assetResults, finalResults_c
     ocr_normalised = ocrResults.copy()
     
     if ocr_normalised.empty or 'Filename' not in ocr_normalised.columns:
-        print("Warning: No OCR data in missing_ocr_proc. Skipping.")
-        return pd.DataFrame()
+        print("Warning: No OCR data in missing_ocr_proc. Skipping missing OCR step and keeping current results.")
+        return finalResults_combined
     
     ocr_normalised['Filename_norm'] = ocr_normalised['Filename'].str[-10:]
     
@@ -649,18 +649,22 @@ def missing_ocr_proc(brandAsset_method, ocrResults, assetResults, finalResults_c
         ocr_normalised['Brand_Generic'] = ocr_normalised['Brand']
 
     final_normalised = finalResults_combined.copy()
-    final_normalised['Filename_norm'] = final_normalised['Filename'].str[-10:]
-    
-    if brand_normalisation:
-        final_normalised['Brand_Generic'] = final_normalised['Brand'].map(
-            lambda x: brand_normalisation.get(x, x)
-        )
+    if final_normalised.empty or 'Filename' not in final_normalised.columns or 'Brand' not in final_normalised.columns:
+        print("Warning: Existing results are empty or missing key columns; treating all OCR combos as missing.")
+        final_combinations = pd.DataFrame(columns=['Filename_norm', 'Brand_Generic'])
     else:
-        final_normalised['Brand_Generic'] = final_normalised['Brand']
+        final_normalised['Filename_norm'] = final_normalised['Filename'].str[-10:]
+
+        if brand_normalisation:
+            final_normalised['Brand_Generic'] = final_normalised['Brand'].map(
+                lambda x: brand_normalisation.get(x, x)
+            )
+        else:
+            final_normalised['Brand_Generic'] = final_normalised['Brand']
+
+        final_combinations = final_normalised[['Filename_norm', 'Brand_Generic']].drop_duplicates()
 
     ocr_combinations   = ocr_normalised[['Filename_norm', 'Brand_Generic']].drop_duplicates()
-    final_combinations = final_normalised[['Filename_norm', 'Brand_Generic']].drop_duplicates()
-
     ocr_combinations['combo']   = list(zip(ocr_combinations['Filename_norm'],   ocr_combinations['Brand_Generic']))
     final_combinations['combo'] = list(zip(final_combinations['Filename_norm'], final_combinations['Brand_Generic']))
 
@@ -849,6 +853,11 @@ def resolve_unassigned(finalResults, icResults, brand_asset_map, ic_asset_map):
         return finalResults
 
     df = finalResults.copy()
+    if 'Original_Tag' not in df.columns:
+        df['Original_Tag'] = pd.Series([None] * len(df), index=df.index, dtype='object')
+    elif df['Original_Tag'].dtype != object:
+        df['Original_Tag'] = df['Original_Tag'].astype('object')
+
     unassigned_mask = df['Asset'] == 'Unassigned'
 
     if not unassigned_mask.any():

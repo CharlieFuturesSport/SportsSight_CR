@@ -20,21 +20,16 @@
 		FROM Client
 		WHERE Client_Name LIKE '%ecb%'
 */
- 
+
+-- Check for project name
+	SELECT
+    *
+	FROM Project
+	WHERE ProjectName like '%ecb%'
 
 
 -- If both above are empty, launch the TvTrack application and create.
 -- "Z:\Shared\OCT\LDN\FSE\FSEData\technology team\Azure App Versions\TVTrack2.0\UK\setup.exe"
-
-
-
-SELECT DB_NAME() AS CurrentDB;
-SELECT * 
-FROM dbo.TP_Client
-WHERE TP_ID = 9746 AND Client_ID = 29;
-
-
-SELECT @@VERSION AS SqlVersion, DB_NAME() AS CurrentDB;
 
 
 	-- Phase 2 -- PhotoTextTrack - Brand/TP/TP_Client Updates
@@ -61,8 +56,12 @@ So, this notebook covers how we check the AMCR for missing brands, touchpoints a
 		ID INT IDENTITY(1,1),
 		SportsEvent VARCHAR(100)
 	)
-INSERT INTO #SportEvents VALUES
-('12678_050626_Men_1stTest_Eng_v_Nzl_Day_2');
+	INSERT INTO #SportEvents VALUES
+('12679_170626_Men_2ndTest_Eng_v_Nzl_Day_1'),
+('12679_180626_Men_2ndTest_Eng_v_Nzl_Day_2'),
+('12679_190626_Men_2ndTest_Eng_v_Nzl_Day_3'),
+('12679_200626_Men_2ndTest_Eng_v_Nzl_Day_4'),
+('12679_210626_Men_2ndTest_Eng_v_Nzl_Day_5');
 
 
 
@@ -187,11 +186,6 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 */
 
 
-
-
-
-
-
 	-- Phase 3 - Inserting into TvTrack.Exposure
 
 -- Create the temporary table
@@ -233,6 +227,7 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 -- Insert any new programmes for this project
 	DECLARE @overWriteExisting INT = (SELECT overwriteexisting FROM #variables)
 	DECLARE @tvTrackProjectId INT =  (SELECT tvTrackProjectID FROM #variables)
+	DECLARE @clientID INT = (SELECT clientID FROM #variables)
 
 	IF (@overWriteExisting = 1)
 		BEGIN
@@ -510,7 +505,7 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 		Loc_Single AS ScreenLocation,
 		ScreenSize,
 		#duration_grouped.Duration,
-		@tvTrackProjectId AS ProjectID,
+		@TVTrackProjectID AS ProjectID,
 		ProgID AS ProgrammeID,
 		NULL AS ProgDetID,
 		Avg_hits,
@@ -533,12 +528,12 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 			FROM dbo.[CMGSQLNODE01\FSE.PhotoTextTrack.Touchpoints] AS tp
 				INNER JOIN dbo.[CMGSQLNODE01\FSE.PhotoTextTrack.TP_Client] AS tpc
 					ON tp.TouchpointID = TPc.TP_ID
-			WHERE Client_ID = (SELECT clientID FROM #variables)
+			WHERE Client_ID = @clientID
 		) AS Touchpoints
 			ON Touchpoints.TouchpointName = #duration_grouped.touchpoint
 		INNER JOIN Programme
 			ON Programme.PR_Name = #duration_grouped.Event + '.xlsx'
-	WHERE Programme.ProjecTID = @tvTrackProjectId
+	WHERE Programme.ProjecTID = @TVTrackProjectID
 	ORDER BY id
 
 
@@ -552,7 +547,7 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 			  FROM #duration_grouped
 				  INNER JOIN Programme
 					  ON Programme.PR_Name = #duration_grouped.Event + '.xlsx'
-			  WHERE Programme.ProjecTID = @tvTrackProjectId
+			  WHERE Programme.ProjecTID = @TVTrackProjectID
 		  )
 
 
@@ -567,7 +562,7 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 	INSERT INTO #proglist
 	SELECT ProgID
 	FROM Programme p
-	WHERE p.projectID = @tvTrackProjectId
+	WHERE p.projectID = @TVTrackProjectID
 		  AND uploaded = 1
 		  AND starttime IS NULL
 
@@ -595,19 +590,7 @@ select touchpointid, client_id, touchpointname from dbo.[CMGSQLNODE01\FSE.PhotoT
 
 
 -- Phase 4 -- Checking exposure table
-DECLARE @phase4ProjectId INT = NULL;
-DECLARE @phase4EventName VARCHAR(100) = '12678_050626_Men_1stTest_Eng_v_Nzl_Day_2';
-
-IF OBJECT_ID('tempdb..#variables') IS NOT NULL
-BEGIN
-	SELECT TOP 1 @phase4ProjectId = tvTrackProjectId
-	FROM #variables;
-END
-
-IF @phase4ProjectId IS NULL
-BEGIN
-	SET @phase4ProjectId = 1042;
-END
+DECLARE @TvTrackProjectID INT = (SELECT tvTrackProjectID FROM #variables);
 
 SELECT
     PR_Name, ProgrammeID, DATEDIFF(MI,MIN(exp.StartTime), MAX(exp.EndTime)) AS DurationMinutes, SUM(exp.Duration) as ExposureSumSeconds
@@ -615,20 +598,10 @@ SELECT
 FROM Exposure EXP
     INNER JOIN Programme PRO
         ON EXP.ProgrammeID = PRO.ProgID
-WHERE exp.ProjectID = @phase4ProjectId
-AND (
-	(
-		OBJECT_ID('tempdb..#tblEvents') IS NOT NULL
-		AND PR_Name IN (SELECT EventName + '.xlsx' FROM #tblEvents)
-	)
-	OR
-	(
-		OBJECT_ID('tempdb..#tblEvents') IS NULL
-		AND PR_Name = @phase4EventName + '.xlsx'
-	)
-)
+WHERE exp.ProjectID = @TvTrackProjectID
+AND PR_Name IN (SELECT EventName + '.xlsx' FROM #tblEvents)
 GROUP BY PR_Name, ProgrammeID, PRO.StartTime, PRO.EndTime
 
 
 -- Check field for the screen size
-SELECT MAX(ScreenSize), MIN(ScreenSize) FROM Exposure WHERE ProjectID = @phase4ProjectId
+SELECT MAX(ScreenSize), MIN(ScreenSize) FROM Exposure WHERE ProjectID = @TvTrackProjectID
