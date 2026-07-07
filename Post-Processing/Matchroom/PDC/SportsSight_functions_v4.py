@@ -425,10 +425,18 @@ def brand_proc(brand, brandResults, sport, iteration):
         on=['Brand'],
         how='inner'
     )
+
+    # Older/newer raw brand outputs may expose confidence under different names.
+    if 'BrandConfidence' in merged.columns:
+        brand_conf_col = 'BrandConfidence'
+    elif 'Confidence' in merged.columns:
+        brand_conf_col = 'Confidence'
+    else:
+        raise KeyError("Expected brand confidence column not found (BrandConfidence/Confidence).")
     
     filtered_b2 = merged[
         (merged['Box_Size_Perc'] >= merged['MinSize']) &
-        (merged['BrandConfidence'] >= merged['Brand_confidence'])
+        (merged[brand_conf_col] >= merged['Brand_confidence'])
     ].copy()
     
     filtered_b2 = filtered_b2.drop(columns=['MinSize', 'Brand_confidence'])
@@ -440,7 +448,7 @@ def brand_proc(brand, brandResults, sport, iteration):
     filtered_b2 = filtered_b2.rename(columns=column_mapping_v2)
     filtered_b2['Event'] = filtered_b2['Event']
     filtered_b2['Filename'] = filtered_b2['Filename'].str[-10:] 
-    filtered_b2['Probability'] = filtered_b2['BrandConfidence']
+    filtered_b2['Probability'] = filtered_b2[brand_conf_col]
     filtered_b2['Iteration'] = iteration
     filtered_b2['AcceptedExposure'] = 1
     filtered_b2['ScreenSize'] = filtered_b2['Box_Size_Perc']

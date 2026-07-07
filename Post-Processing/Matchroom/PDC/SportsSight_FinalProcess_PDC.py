@@ -10,50 +10,40 @@ import time
 import math
 from datetime import datetime
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\Python Helper Scripts')
+sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\Python Helper Scripts')
 import sql_helper_LR as lr
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\OCR Coords')
+sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\OCR Coords')
 import SportsSight_OCR_coordinates as coord
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Matchroom\PDC')
+sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Matchroom\PDC')
 import SportsSight_functions_v4 as func
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-inputFile    = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Matchroom\PDC\Brand Asset Methodology - PDC (Premier League).xlsx"
-output_folder = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Matchroom\PDC"
+inputFile    = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Matchroom\PDC\Brand Asset Methodology - PDC (Nordic Darts Masters).xlsx"
+output_folder = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Matchroom\PDC"
 
 sport       = 'darts'
 sqlServer   = 'inf'
 sqlDatabase = 'matchroom'
-iteration   = 'SS3'
+iteration   = 'SS1'
 
 # OCR coordinate tolerances (position/size relative to image; angle in degrees)
 ocr_position_tolerance = 0.05
 ocr_size_tolerance     = 0.2
 ocr_angle_tolerance    = 5.0
 
+# Brands to include when generating potential TVGI (fixed-position broadcast graphic) candidates.
+# Only relevant if the methodology sheet has rows with OCR_coordinates=1 — currently none does,
+# so this step won't run. Fill in if/when a Nordic Darts Masters broadcast-graphic sponsor is confirmed.
+tvgi_candidate_brands = []
+
 listOfEvents = [
-'20260528_PDC_PL_Day17Evening',
-'20260521_PDC_PL_Day16Evening',
-'20260514_PDC_PL_Day15Evening',
-'20260507_PDC_PL_Day14Evening',
-'20260430_PDC_PL_Day13Evening',
-'20260423_PDC_PL_Day12Evening',
-'20260416_PDC_PL_Day11Evening',
-'20260409_PDC_PL_Day10Evening',
-'20260402_PDC_PL_Day9Evening',
-'20260326_PDC_PL_Day8Evening',
-'20260302_PDC_PL_Day7Evening',
-'20260226_PDC_PL_Day6Evening',
-'20260219_PDC_PL_Day5Evening',
-'20260212_PDC_PL_Day4Evening',
-'20260205_PDC_PL_Day3Evening',
-'20260212_PDC_PL_Day2Evening',
-'20260205_PDC_PL_Day1Evening'
+'20260605_PDC_NORD_Day1Evening',
+'20260606_PDC_NORD_Day2Evening'
 ]
 
 missingOCRStep = True
@@ -62,53 +52,38 @@ missingOCRStep = True
 brand_norm = None
 
 # Assets to include in missing OCR matching — set to None to include all
+# Restricted to the placement types called out in the Nordic Darts Masters brief.
+# NOTE: names follow the WCOD methodology's raw asset vocabulary (same PDC CV model) —
+# verify these are the actual SportsSight_Raw_Assets class names for this venue before relying on them.
 valid_assets_list = [
-'Chest Branding - Player',
-'Back Wall - Centre',
-'Back Wall - Outer Side',
-'Back Wall - Side',
-'Chest Branding - Referee',
 'Dart Board',
-'Interview Backdrop',
-'LED Banner',
-'Promotional - Placard',
-'Referee',
-'Score Screen',
 'Sleeve',
+'Chest Branding - Player',
+'Chest Branding - Referee',
 'Stage Board',
 'Stage Table',
-'Trophy',
-'Venue Barrier',
+'Promotional - Placard',
+'Back Wall - Centre',
+'Back Wall - Side',
+'Back Wall - Outer Side',
+'Side Wall',
 'Water Bottle',
-'TVGI'
+'Trophy',
+'Graphic - TVGI',
 ]
 
 # Brand corrections applied during missing OCR matching
 corrections = None
 
 # Pass 1: Brand -> Asset for Unassigned rows
-unassigned_brand_asset_map = {
-    'Fosters': 'Back Wall - Side',
-    'Fireball': 'Back Wall - Side',
-    'Village Hotels': 'Back Wall - Side',
-    'Falken Tyres': 'Back Wall - Side',
-    'Smart Water': 'Water Bottle',    
-}
+# Left empty for this event — the WCOD/Premier League fallback guesses (Fosters, Cinch, BetMGM, etc.)
+# don't apply to Nordic Darts Masters. Populate this only after reviewing real Missing_OCR output
+# for this event and confirming which brand always sits on the same asset.
+unassigned_brand_asset_map = {}
 
 # Pass 2: (IC prediction, Brand) -> Asset for still-Unassigned rows
-unassigned_ic_asset_map = {
-    ('Player Interview',    'Cinch'): 'Interview Backdrop',
-    ('Player Interview',    'BetMGM'): 'Interview Backdrop',
-    # ('Split Screen', 'BetMGM'): 'Broadcast Graphic',
-    # ('Presenter', 'BetMGM'): 'Studio Backdrop',
-    # ('Presenter', 'Cinch'): 'Studio Backdrop',
-    # ('Player Interview', 'Winmau'): 'Interview Board',
-    # ('Dart Board', 'Winmau'): 'Match Action',
-    # ('Audience', 'BetMGM'): 'Crowd Shot',
-    # ('TVGI', 'BetMGM'): 'TV Overlay',
-    # ('Unlabeled', 'BetMGM'): 'Generic Exposure',
-    # ('Unlabeled', 'Winmau'): 'Generic Exposure'
-}
+# Same as above — left empty pending real review for this event.
+unassigned_ic_asset_map = {}
 
 # ============================================================================
 # SETUP
@@ -163,8 +138,8 @@ if not ocr_coords.empty:
             output_path=output_path,
             iteration=iteration,
             group_events=True,
-            brands=['BETMGM'],
-            cleaned_text_list=['BETMGM'],
+            brands=tvgi_candidate_brands,
+            cleaned_text_list=tvgi_candidate_brands,
             position_tolerance=ocr_position_tolerance,
             size_tolerance=ocr_size_tolerance,
             angle_tolerance=ocr_angle_tolerance,
@@ -439,7 +414,7 @@ for eventName in listOfEvents:
     all_results = pd.concat([all_results, exposurePerEvent(eventName)], ignore_index=True)
 
 all_results.to_csv(
-    r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Matchroom\PDC\pls6_temp.csv',
+    r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Matchroom\PDC\pls6_temp.csv',
     index=False
 )
 
@@ -450,11 +425,17 @@ all_results.to_csv(
 def upload_to_sql(df, label='results'):
     """Upload a DataFrame to Toolkit_AzureModels_CombinedResults in chunks."""
     chunk_size = 10000
-    chunks = np.array_split(df, max(1, len(df) // chunk_size))
-    print(f"Uploading {label}: {len(df)} rows in {len(chunks)} chunks.")
-    for i, chunk in enumerate(chunks):
+    if df.empty:
+        print(f"No rows to upload for {label}.")
+        return
+
+    total_chunks = max(1, math.ceil(len(df) / chunk_size))
+    print(f"Uploading {label}: {len(df)} rows in {total_chunks} chunks.")
+
+    for i, start in enumerate(range(0, len(df), chunk_size)):
+        chunk = df.iloc[start:start + chunk_size].copy()
         try:
-            print(f"  Chunk {i+1}/{len(chunks)} ({len(chunk)} rows)...")
+            print(f"  Chunk {i+1}/{total_chunks} ({len(chunk)} rows)...")
             lr.toSQL(chunk, sqlServer, sqlDatabase, 'Toolkit_AzureModels_CombinedResults')
             print(f"  Chunk {i+1} uploaded.")
         except Exception as e:

@@ -21,7 +21,8 @@ CREATE TABLE  #SportEvents (
 )
 
 INSERT INTO #SportEvents VALUES
-('12678_050626_Men_1stTest_Eng_v_Nzl_Day_2/')
+('20260605_PDC_NORD_Day1Evening/'),
+('20260606_PDC_NORD_Day2Evening/');
 
 
 
@@ -42,7 +43,7 @@ ORDER BY RAW.SportsEvent;
 
 
 -- Stage 2A: Check existing Human rules for this AccessFlag
-select * from Toolkit_OCR_cleaning_rules where AccessFlag = 'ecb_2026'
+select * from Toolkit_OCR_cleaning_rules where AccessFlag = 'NordicDartsMasters'
 and Row_addition_source = 'human'
 
 -- Stage 2B: Add new Human rules (edit only VALUES rows)
@@ -83,7 +84,16 @@ FROM
 (
     VALUES
         -- Reported_brand, Reported_creative, AccessFlag
-        ('Chapel Down', '', 'ecb_2026')
+        ('Mr Vegas', '', 'NordicDartsMasters'),
+        ('Winmau', '', 'NordicDartsMasters'),
+        ('Werner Ladders', '', 'NordicDartsMasters'),
+        ('Werner Ladders', 'WERNER', 'NordicDartsMasters'),
+        ('Werner Ladders', 'LADDERS', 'NordicDartsMasters'),
+        ('Falken Tyres', '', 'NordicDartsMasters'),
+        ('Forum Copenhagen', '', 'NordicDartsMasters'),
+        ('Viaplay', '', 'NordicDartsMasters'),
+        ('Smart Water', '', 'NordicDartsMasters'),
+        ('Fireball', '', 'NordicDartsMasters')
 ) I (Reported_brand, Reported_creative, AccessFlag)
 CROSS APPLY
 (
@@ -101,14 +111,38 @@ WHERE NOT EXISTS
     AND R.Primary_Search_Term = X.Primary_Search_Term
 )
 
+SELECT
+COUNT(*) AS HumanRuleCount
+FROM Toolkit_OCR_Cleaning_Rules
+WHERE AccessFlag = 'NordicDartsMasters'
+AND Row_addition_source = 'Human';
+
+SELECT
+Reported_brand,
+Primary_search_term,
+Min_Levenshtein_Value
+FROM Toolkit_OCR_Cleaning_Rules
+WHERE AccessFlag = 'NordicDartsMasters'
+AND Row_addition_source = 'Human'
+ORDER BY Reported_brand, Primary_search_term;
+
+
+
+
+
+SELECT SportsEvent, brand, COUNT(*)
+FROM Toolkit_Cleaned_OCR_Results
+WHERE AccessFlag = 'NordicDartsMasters' AND Brand = 'Werner Ladders'
+GROUP BY SportsEvent, brand;
+
 -- ============================================================
 -- STAGE 3: Apply OCR cleaning pipeline
 -- ============================================================
 
-DECLARE @specificAccessFlag VARCHAR(100) = 'ecb_2026';
+DECLARE @specificAccessFlag VARCHAR(100) = 'NordicDartsMasters';
 
 -- ========= RUN KPIs (before/after) =========
-SET @specificAccessFlag = 'ecb_2026';
+SET @specificAccessFlag = 'NordicDartsMasters';
 
 -- 1) Scope check
 SELECT 'Scope' AS section, SportsEvent
@@ -157,7 +191,7 @@ WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
 -- 6) 
 
     SELECT DISTINCT brand FROM Toolkit_Cleaned_OCR_Results C
-    WHERE C.AccessFlag = 'ECB_2026'
+    WHERE C.AccessFlag = 'NordicDartsMasters'
     AND C.SportsEvent IN (SELECT SportsEvent FROM #SportEvents)
     ORDER BY 1
 
@@ -165,7 +199,7 @@ WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
 -- STEP 3.1: Insert exact Human matches
 -- --------------------
 
-SET @specificAccessFlag = 'ecb_2026'
+SET @specificAccessFlag = 'NordicDartsMasters'
 
 INSERT INTO Toolkit_Cleaned_OCR_Results
 SELECT --TOP 100
@@ -221,7 +255,8 @@ FROM (
 -- STEP 3.2: Insert exact Automated matches
 -- --------------------
 
-SET @specificAccessFlag = 'ecb_2026'
+DECLARE @specificAccessFlag VARCHAR(100);
+SET @specificAccessFlag = 'NordicDartsMasters'
 
 insert into Toolkit_Cleaned_OCR_Results
 SELECT --TOP 100
@@ -283,7 +318,7 @@ WHERE SportsEvent IN
 -- --------------------
 
 -- IDENTIFY SEARCH TERMS
-DECLARE @specificAccessFlag33 VARCHAR(100) = 'ecb_2026'
+DECLARE @specificAccessFlag33 VARCHAR(100) = 'NordicDartsMasters'
 DECLARE @autoAcceptMaxOcrCount INT
 SET @autoAcceptMaxOcrCount = 3
 
@@ -479,7 +514,7 @@ SET Decision = 'REJECT'
 WHERE Decision = 'PENDING'
 AND Primary_Search_Term IN
 (
-    'CONNECTS'
+    ''
 )
 
 -- 2) Accept everything else that remains pending.
@@ -510,7 +545,7 @@ WHERE H.Decision = 'ACCEPT'
 
 -- Step 3.3.4: Rerun AUTOMATED exact-match insert after new rules were added
 DECLARE @specificAccessFlag33 VARCHAR(100)
-SET @specificAccessFlag33 = 'ecb_2026'
+SET @specificAccessFlag33 = 'NordicDartsMasters'
 
 insert into Toolkit_Cleaned_OCR_Results
 SELECT-- TOP 100
@@ -572,7 +607,7 @@ WHERE SportsEvent IN
 -- STEP 3.4: Insert substring matches (Human rules)
 -- --------------------
 DECLARE @specificAccessFlag33 VARCHAR(100)
-SET @specificAccessFlag33 = 'ecb_2026'
+SET @specificAccessFlag33 = 'NordicDartsMasters'
 
 --MANUAL AS PART OF A STRING
 INSERT INTO Toolkit_Cleaned_OCR_Results
@@ -653,7 +688,7 @@ INSERT INTO Toolkit_Cleaned_OCR_Results
 
 
 DECLARE @specificAccessFlag33 VARCHAR(100)
-SET @specificAccessFlag33 = 'ecb_2026';
+SET @specificAccessFlag33 = 'NordicDartsMasters';
 
 SELECT
     COUNT(*) AS RawRows,
@@ -668,3 +703,61 @@ LEFT JOIN Toolkit_Cleaned_OCR_Results C
     ON RAW.OcrLineId = C.OcrLineID
     AND C.AccessFlag = @specificAccessFlag33
 WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
+
+
+
+SELECT SportsEvent, brand, COUNT(*)
+FROM Toolkit_Cleaned_OCR_Results
+WHERE AccessFlag = 'NordicDartsMasters' AND Brand = 'Werner Ladders'
+GROUP BY SportsEvent, brand;
+
+
+DELETE FROM Toolkit_AzureModels_CombinedResults
+WHERE Event IN ('20260605_PDC_NORD_Day1Evening', '20260606_PDC_NORD_Day2Evening');
+
+
+
+SELECT AccessFlag, COUNT(*)
+FROM Toolkit_Cleaned_OCR_Results
+WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
+GROUP BY AccessFlag;
+
+
+DELETE FROM Toolkit_Cleaned_OCR_Results
+WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
+  AND AccessFlag = 'Nordic';
+
+
+  DELETE FROM Toolkit_AzureModels_CombinedResults
+WHERE Event IN ('20260605_PDC_NORD_Day1Evening', '20260606_PDC_NORD_Day2Evening');
+
+
+SELECT AccessFlag, brand, COUNT(*)
+FROM Toolkit_Cleaned_OCR_Results
+WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
+GROUP BY AccessFlag, brand
+ORDER BY AccessFlag, brand;
+
+
+
+SELECT AccessFlag, MIN(ID) AS EarliestRuleID, MAX(ID) AS LatestRuleID, COUNT(*) AS RuleCount
+FROM Toolkit_OCR_Cleaning_Rules
+WHERE Reported_brand IN ('Mr Vegas','Winmau','Fireball','Falken','Falken Tyres','Werner','Werner Ladders','Forum Copenhagen','Viaplay','TOM Insurance')
+GROUP BY AccessFlag;
+
+
+DELETE FROM Toolkit_Cleaned_OCR_Results
+WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
+  AND AccessFlag = 'Nordic';
+
+  DELETE FROM Toolkit_AzureModels_CombinedResults
+WHERE Event IN ('20260605_PDC_NORD_Day1Evening', '20260606_PDC_NORD_Day2Evening');
+
+
+SELECT SportsEvent, brand, COUNT(*)
+FROM Toolkit_Cleaned_OCR_Results
+WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
+  AND brand = 'Werner Ladders'
+GROUP BY SportsEvent, brand;
+
+
