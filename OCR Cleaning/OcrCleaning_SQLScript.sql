@@ -4,16 +4,16 @@
 -- STAGE 1: Build event list for this run
 -- ============================================================
 
--- Stage 1A: Find events that have recently been processed
+-- Stage 1A (optional helper for Blast)
 SELECT
      '(''' + SportsEvent + '''),'
 FROM [dbo].[CMGSQLNODE01\FSE.ThemisDevelopment.ComputerVisionProcessingJobsHistory]
-WHERE Sport = 'darts'
+WHERE Sport = 'cricket'
 AND CREATED >= GETUTCDATE() - 60
-and SportsEvent like '%nord%'
-ORDER BY created desc
+AND LOWER(SportsEvent) LIKE '%blast%'
+ORDER BY created desc;
 
--- Stage 1B: Create and populate #SportEvents
+-- Stage 1B: run scope (single event)
 drop table if exists #SportEvents
 CREATE TABLE  #SportEvents (
     ID INT IDENTITY(1,1),
@@ -21,12 +21,25 @@ CREATE TABLE  #SportEvents (
 )
 
 INSERT INTO #SportEvents VALUES
-('20260606_PDC_NORD_Day2Evening/'),
-('20260605_PDC_NORD_Day1Evening/')
+('12678_050626_Men_1stTest_Eng_v_Nzl_Day_2/')
+
+
+
+-- Check exact + near matches for your 3 IDs
+SELECT TOP 200 RAW.SportsEvent, COUNT(*) AS Cnt
+FROM Toolkit_ComputerVisionOcrResults RAW
+JOIN #SportEvents E
+  ON RAW.SportsEvent LIKE REPLACE(E.SportsEvent, '/', '') + '%'
+GROUP BY RAW.SportsEvent
+ORDER BY RAW.SportsEvent;
 
 -- ============================================================
 -- STAGE 2: Review existing cleaning rules
 -- ============================================================
+
+
+
+
 
 -- Stage 2A: Check existing Human rules for this AccessFlag
 select * from Toolkit_OCR_cleaning_rules where AccessFlag = 'ecb_2026'
@@ -41,11 +54,11 @@ and Row_addition_source = 'human'
 --   Row_addition_source = 'Human'
 --   Row_manually_confirmed = 1
 --   exact_match_required = 0
+--   substring_search_allowed = 1
 --   other_on_screen_text_required = ''
 -- Derived fields:
 --   Primary_Search_Term = IF(Reported_creative blank, Reported_brand, Reported_creative)
 --   SearchTermLen = LEN(Primary_Search_Term)
---   substring_search_allowed = IF(LEN(Primary_Search_Term)>4,1,0)
 --   min_levenshtein_value = IF(LEN(Primary_Search_Term)<3,1,0.75-(LEN(Primary_Search_Term)*0.0075))
 
 INSERT INTO Toolkit_OCR_Cleaning_Rules
@@ -53,15 +66,12 @@ SELECT
     'Human',
     1,
     I.Reported_brand,
-    I.Reported_creative,
+    NULLIF(I.Reported_creative, ''),
     I.AccessFlag,
     X.Primary_Search_Term,
     LEN(X.Primary_Search_Term),
     0,
-    CASE
-        WHEN LEN(X.Primary_Search_Term) > 4 THEN 1
-        ELSE 0
-    END,
+    1,
     CAST(
         CASE
             WHEN LEN(X.Primary_Search_Term) < 3 THEN 1
@@ -73,7 +83,7 @@ FROM
 (
     VALUES
         -- Reported_brand, Reported_creative, AccessFlag
-        ('Peroni', '', 'ecb_2026')
+        ('Chapel Down', '', 'ecb_2026')
 ) I (Reported_brand, Reported_creative, AccessFlag)
 CROSS APPLY
 (
@@ -95,11 +105,66 @@ WHERE NOT EXISTS
 -- STAGE 3: Apply OCR cleaning pipeline
 -- ============================================================
 
+DECLARE @specificAccessFlag VARCHAR(100) = 'ecb_2026';
+
+-- ========= RUN KPIs (before/after) =========
+SET @specificAccessFlag = 'ecb_2026';
+
+-- 1) Scope check
+SELECT 'Scope' AS section, SportsEvent
+FROM #SportEvents;
+
+-- 2) Raw detections in scope
+SELECT
+    'Raw detections' AS metric,
+    COUNT(*) AS value
+FROM Toolkit_ComputerVisionOcrResults RAW
+WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
+
+-- 3) Cleaned rows already in scope (before run if you execute this first)
+SELECT
+    'Cleaned rows' AS metric,
+    COUNT(*) AS value
+FROM Toolkit_Cleaned_OCR_Results C
+WHERE C.AccessFlag = @specificAccessFlag
+  AND C.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
+
+-- 4) Remaining unmatched raw rows
+SELECT
+    'Uncleaned remaining' AS metric,
+    COUNT(*) AS value
+FROM Toolkit_ComputerVisionOcrResults RAW
+LEFT JOIN Toolkit_Cleaned_OCR_Results C
+    ON RAW.OcrLineId = C.OcrLineID
+   AND C.AccessFlag = @specificAccessFlag
+WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents)
+  AND C.ID IS NULL;
+
+-- 5) Coverage %
+SELECT
+    'Coverage %' AS metric,
+    CAST(
+      100.0 * SUM(CASE WHEN C.ID IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)
+      AS DECIMAL(6,2)
+    ) AS value
+FROM Toolkit_ComputerVisionOcrResults RAW
+LEFT JOIN Toolkit_Cleaned_OCR_Results C
+    ON RAW.OcrLineId = C.OcrLineID
+   AND C.AccessFlag = @specificAccessFlag
+WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
+
+
+-- 6) 
+
+    SELECT DISTINCT brand FROM Toolkit_Cleaned_OCR_Results C
+    WHERE C.AccessFlag = 'ECB_2026'
+    AND C.SportsEvent IN (SELECT SportsEvent FROM #SportEvents)
+    ORDER BY 1
+
 -- --------------------
 -- STEP 3.1: Insert exact Human matches
 -- --------------------
 
-DECLARE @specificAccessFlag VARCHAR(100)
 SET @specificAccessFlag = 'ecb_2026'
 
 INSERT INTO Toolkit_Cleaned_OCR_Results
@@ -151,11 +216,11 @@ FROM (
            AND AccessFlag = @specificAccessFlag
            AND (other_on_screen_text_required = '')
 
+
 -- --------------------
 -- STEP 3.2: Insert exact Automated matches
 -- --------------------
 
-DECLARE @specificAccessFlag VARCHAR(100)
 SET @specificAccessFlag = 'ecb_2026'
 
 insert into Toolkit_Cleaned_OCR_Results
@@ -218,8 +283,7 @@ WHERE SportsEvent IN
 -- --------------------
 
 -- IDENTIFY SEARCH TERMS
-DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'ecb_2026'
+DECLARE @specificAccessFlag33 VARCHAR(100) = 'ecb_2026'
 DECLARE @autoAcceptMaxOcrCount INT
 SET @autoAcceptMaxOcrCount = 3
 
@@ -233,7 +297,7 @@ DROP TABLE IF EXISTS #Stage33Candidates
     FROM Toolkit_ComputerVisionOcrResults OCR
         LEFT JOIN Toolkit_Cleaned_OCR_Results Inserted
             ON OCR.OcrLineId = Inserted.OcrLineId
-            AND Inserted.AccessFlag = @specificAccessFlag
+            AND Inserted.AccessFlag = @specificAccessFlag33
     WHERE OCR.SportsEvent IN
           (
               SELECT SportsEvent FROM #SportEvents
@@ -249,7 +313,7 @@ UnseenOCR AS
     FROM PendingOCR
         LEFT JOIN [dbo].[Toolkit_OCR_cleaning_rules] CurrentOCR
             ON PendingOCR.TEXT = CurrentOCR.Primary_Search_Term
-            AND CurrentOCR.AccessFlag = @specificAccessFlag
+            AND CurrentOCR.AccessFlag = @specificAccessFlag33
     WHERE CurrentOCR.ID IS NULL
 ),
 CompBrands AS
@@ -264,7 +328,7 @@ CompBrands AS
     WHERE [Min_Levenshtein_Value] < 1
           AND reported_brand <> 'IGNORE'
           AND [exact_match_required] <> 1
-          AND AccessFlag = @specificAccessFlag
+            AND AccessFlag = @specificAccessFlag33
           AND Row_addition_source = 'Human'
 ),
 RankedMatches AS
@@ -349,7 +413,7 @@ SELECT
     PercentDistance,
     ReviewAction
 FROM #Stage33AutoAcceptToInsert
-ORDER BY Reported_brand, Reported_creative, ocrCount DESC
+ORDER BY ocrCount DESC, Reported_brand, PercentDistance DESC
 
 -- Step 3.3.1B: Insert AUTO_ACCEPT rows into Cleaning Rules
 INSERT INTO Toolkit_OCR_Cleaning_Rules
@@ -415,8 +479,7 @@ SET Decision = 'REJECT'
 WHERE Decision = 'PENDING'
 AND Primary_Search_Term IN
 (
-    'TermA',
-    'TermB'
+    'CONNECTS'
 )
 
 -- 2) Accept everything else that remains pending.
@@ -446,8 +509,8 @@ FROM #Stage33ManualReviewToInsert H
 WHERE H.Decision = 'ACCEPT'
 
 -- Step 3.3.4: Rerun AUTOMATED exact-match insert after new rules were added
-DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'ecb_2026'
+DECLARE @specificAccessFlag33 VARCHAR(100)
+SET @specificAccessFlag33 = 'ecb_2026'
 
 insert into Toolkit_Cleaned_OCR_Results
 SELECT-- TOP 100
@@ -486,7 +549,7 @@ FROM (
             FROM Toolkit_ComputerVisionOcrResults RAW
                LEFT JOIN Toolkit_Cleaned_OCR_Results CLEAN
                   ON RAW.OcrLineId = CLEAN.OcrLineID
-                  AND AccessFlag = @specificAccessFlag
+                        AND AccessFlag = @specificAccessFlag33
             WHERE RAW.SportsEvent in ( SELECT SportsEvent FROM #SportEvents )
             AND CLEAN.ID IS NULL
          ) RAW
@@ -497,7 +560,7 @@ FROM (
            AND exact_match_required = 1
            AND substring_search_allowed = 0
            AND Reported_brand <> 'IGNORE'
-           AND AccessFlag = @specificAccessFlag
+           AND AccessFlag = @specificAccessFlag33
            AND (other_on_screen_text_required = '')
 WHERE SportsEvent IN
       (
@@ -508,9 +571,8 @@ WHERE SportsEvent IN
 -- --------------------
 -- STEP 3.4: Insert substring matches (Human rules)
 -- --------------------
-
-DECLARE @specificAccessFlag VARCHAR(100)
-SET @specificAccessFlag = 'ecb_2026'
+DECLARE @specificAccessFlag33 VARCHAR(100)
+SET @specificAccessFlag33 = 'ecb_2026'
 
 --MANUAL AS PART OF A STRING
 INSERT INTO Toolkit_Cleaned_OCR_Results
@@ -572,7 +634,7 @@ INSERT INTO Toolkit_Cleaned_OCR_Results
             FROM Toolkit_ComputerVisionOcrResults RAW
                LEFT JOIN Toolkit_Cleaned_OCR_Results CLEAN
                   ON RAW.OcrLineId = CLEAN.OcrLineID
-                  AND AccessFlag = @specificAccessFlag
+                        AND AccessFlag = @specificAccessFlag33
             WHERE RAW.SportsEvent in ( SELECT SportsEvent FROM #SportEvents )
             AND CLEAN.ID IS NULL
          ) RAW
@@ -582,9 +644,27 @@ INSERT INTO Toolkit_Cleaned_OCR_Results
             AND Row_addition_source = 'Human'
             AND Row_manually_confirmed = 1
             AND Reported_brand <> 'IGNORE'
-            AND AccessFlag = @specificAccessFlag
+            AND AccessFlag = @specificAccessFlag33
             AND (other_on_screen_text_required = '')
     WHERE SportsEvent IN
       (
           SELECT SportsEvent FROM #SportEvents
       )
+
+
+DECLARE @specificAccessFlag33 VARCHAR(100)
+SET @specificAccessFlag33 = 'ecb_2026';
+
+SELECT
+    COUNT(*) AS RawRows,
+    SUM(CASE WHEN C.ID IS NOT NULL THEN 1 ELSE 0 END) AS CleanedRows,
+    SUM(CASE WHEN C.ID IS NULL THEN 1 ELSE 0 END) AS RemainingRows,
+    CAST(
+        100.0 * SUM(CASE WHEN C.ID IS NOT NULL THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0)
+        AS DECIMAL(6,2)
+    ) AS CoveragePct
+FROM Toolkit_ComputerVisionOcrResults RAW
+LEFT JOIN Toolkit_Cleaned_OCR_Results C
+    ON RAW.OcrLineId = C.OcrLineID
+    AND C.AccessFlag = @specificAccessFlag33
+WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);

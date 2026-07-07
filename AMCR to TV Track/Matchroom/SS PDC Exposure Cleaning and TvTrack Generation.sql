@@ -1,7 +1,7 @@
 /* 
 PDC
 Exposure Cleaning and TvTrack Exposure Generation
-Event: World Championships
+Event: Nordic Darts Masters
 
 
     3411,           --ClientID
@@ -15,6 +15,33 @@ Event: World Championships
 	SECTION 1
 */
 
+/* ============================================================================
+   CONNECTION MAP FOR THIS FILE
+   This ENTIRE file (Section 1 and Section 2) runs on DB: MATCHROOM.
+   There is no connection switch inside this file - it never needs TvTrack
+   directly (it reaches TvTrack.Programme only via the linked name
+   dbo.[CMGSQLNODE01\FSE.TvTrack.Programme] at the bottom of Section 2).
+
+   FULL WORKFLOW ORDER (across both files - the "open X" comments below jump
+   back and forth, so follow this order rather than the file order):
+     1. THIS FILE, Section 1            -> MATCHROOM (clean brands/assets, build
+                                            #frame_results / #duration_grouped)
+     2. 'Move from AMCR to TvTrack.sql'
+        first section (dictionary checks
+        + Programme insert)             -> MATCHROOM, then switch to TVTRACK
+                                            partway through (see that file's own
+                                            connection map at its top)
+     3. THIS FILE, Section 2            -> MATCHROOM (asset renames + INSERT INTO
+                                            EXPOSURE - requires the TvTrack
+                                            Programme rows created in step 2 to
+                                            already exist, since it joins to them
+                                            via the linked name)
+     4. 'Move from AMCR to TvTrack.sql'
+        Section 2                       -> TVTRACK (moves data from Matchroom's
+                                            linked Exposure table into TvTrack's
+                                            dbo.Exposure/dbo.Programme)
+   ============================================================================ */
+
 
 	--	Asset and brand cleaning 
 
@@ -26,23 +53,8 @@ Event: World Championships
 		SportsEvent VARCHAR(100)
 	)
 	INSERT INTO #SportEvents VALUES
-	('20260528_PDC_PL_Day17Evening/'),
-	('20260521_PDC_PL_Day16Evening/'),
-	('20260514_PDC_PL_Day15Evening/'),
-	('20260507_PDC_PL_Day14Evening/'),
-	('20260430_PDC_PL_Day13Evening/'),
-	('20260423_PDC_PL_Day12Evening/'),
-	('20260416_PDC_PL_Day11Evening/'),
-	('20260409_PDC_PL_Day10Evening/'),
-	('20260402_PDC_PL_Day9Evening/'),
-	('20260326_PDC_PL_Day8Evening/'),
-	('20260302_PDC_PL_Day7Evening/'),
-	('20260226_PDC_PL_Day6Evening/'),
-	('20260219_PDC_PL_Day5Evening/'),
-	('20260212_PDC_PL_Day4Evening/'),
-	('20260205_PDC_PL_Day3Evening/'),
-	('20260212_PDC_PL_Day2Evening/'),
-	('20260205_PDC_PL_Day1Evening/')
+	('20260605_PDC_NORD_Day1Evening/'),
+	('20260606_PDC_NORD_Day2Evening/')
 
 
 
@@ -177,7 +189,7 @@ Event: World Championships
 				AND (Asset IS NOT NULL)
 				AND asset <> 'Exclude'
 				AND (Sport = @sport)
-				AND ModelType like '%Asset%'
+				AND (ModelType like '%Asset%' OR ModelType = 'Brand')
 			) AS ODresults
 		GROUP BY
 			Event, [Filename], Brand, Asset
@@ -312,13 +324,29 @@ Event: World Championships
     ORDER BY Event, Brand, touchpoint, timeonscreen, duration_cluster
 
 
-/* 
+/*
 	Open 'Move from AMCR to TvTrack' and go to the first section
+	(that file's dictionary-check block, Matchroom, then its manual switch to
+	TvTrack to insert Programme rows - see step 2 in the workflow map above)
 */
 --------------------------------------------------------------------
 /*
-	SECTION 2
+	SECTION 2 (of THIS file)
+	Still DB: MATCHROOM. Only run this after step 2 above has completed and
+	created the TvTrack Programme rows for these events - the INSERT INTO
+	EXPOSURE below joins to Programme via a linked name and needs those rows
+	to exist.
 */
+
+UPDATE Toolkit_AzureModels_CombinedResults
+SET Asset = 'Back Wall - Outer Side'
+WHERE Event + '/' IN (SELECT SportsEvent FROM #SportEvents)
+  AND Asset = 'Back Wall - Outer';
+
+UPDATE Toolkit_AzureModels_CombinedResults
+SET Asset = 'Graphic - Scorecard'
+WHERE Event + '/' IN (SELECT SportsEvent FROM #SportEvents)
+  AND Asset = 'Graphic - scorecard';
 
 -- Insert into exposure
 	DECLARE @TvTrackProjectID INT = (SELECT tvTrackProjectID FROM #variables);
@@ -362,10 +390,23 @@ Event: World Championships
 			ON Touchpoints.TouchpointName COLLATE SQL_Latin1_General_CP1_CI_AS = #duration_grouped.touchpoint
 		INNER JOIN dbo.[CMGSQLNODE01\FSE.TvTrack.Programme] Programme
 			ON Programme.PR_Name COLLATE SQL_Latin1_General_CP1_CI_AS = #duration_grouped.Event + '.xlsx'
-	WHERE Programme.ProjecTID = @TVTrackProjectID
+	WHERE Programme.ProjectID = @TVTrackProjectID
 	ORDER BY id
 
 /*
-	Open 'Move from AMCR to TvTrack'
+	Open 'Move from AMCR to TvTrack', Section 2 (DB: TVTRACK) - final step,
+	moves this Exposure data into TvTrack proper.
 */
 ----------------------------------------
+
+
+
+SELECT
+    ProjectID,
+    COUNT(*) AS ProgrammeCount
+FROM dbo.[CMGSQLNODE01\FSE.TvTrack.Programme]
+WHERE PR_Name IN ('20260605_PDC_NORD_Day1Evening.xlsx','20260606_PDC_NORD_Day2Evening.xlsx')
+GROUP BY ProjectID
+ORDER BY ProgrammeCount DESC;
+
+

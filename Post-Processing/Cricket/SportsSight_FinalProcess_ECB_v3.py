@@ -10,21 +10,21 @@ import time
 import math
 from datetime import datetime
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\Python Helper Scripts')
+sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\Python Helper Scripts')
 import sql_helper_LR as lr
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\OCR Coords')
+sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\OCR Coords')
 import SportsSight_OCR_coordinates as coord
 
-sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Cricket')
+sys.path.insert(0, r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Cricket')
 import SportsSight_functions_ECB as func
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-inputFile    = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Cricket\SportSight - Brand Asset Methodology - ECB (new v2).xlsx"
-output_folder = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Post-Processing\Cricket"
+inputFile    = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Cricket\SportSight_Brand_Asset_Methodology_ECB_mensttest2.xlsx"
+output_folder = r"Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Cricket\outputs"
 
 sport       = 'cricket'
 sqlServer   = 'inf'
@@ -36,21 +36,29 @@ ocr_position_tolerance = 0.05
 ocr_size_tolerance     = 0.2
 ocr_angle_tolerance    = 5.0
 
+# Brands to include when generating potential TVGI candidates.
+# Rothesay is the priority; set include_sky_sports to False to run Rothesay-only.
+include_sky_sports = False
+tvgi_candidate_brands = ['Rothesay'] + (['Sky Sports'] if include_sky_sports else [])
+
+# Edit this list only when switching batch.
 listOfEvents = [
-'12706_020626_Women_3rdT20I_Eng_v_Ind',
-'12705_300526_Women_2ndT20I_Eng_v_Ind',
-'12704_280526_Women_1stT20I_Eng_v_Ind'
+'12679_170626_Men_2ndTest_Eng_v_Nzl_Day_1',
+'12679_180626_Men_2ndTest_Eng_v_Nzl_Day_2',
+'12679_190626_Men_2ndTest_Eng_v_Nzl_Day_3',
+'12679_200626_Men_2ndTest_Eng_v_Nzl_Day_4',
+'12679_210626_Men_2ndTest_Eng_v_Nzl_Day_5'
 ]
 
-missingOCRStep = True
+missingOCRStep = False
 
-# Brand normalisation for missing OCR step — set to None if not needed
+# Brand normalisation for missing OCR step ��� set to None if not needed
 brand_norm = None
 # {    'Barclays': 'Barclays_All',
 #     'Barclays WSL': 'Barclays_All',
 #     'Barclays Solus': 'Barclays_All' } # None
 
-# Assets to include in missing OCR matching — set to None to include all
+# Assets to include in missing OCR matching ��� set to None to include all
 valid_assets_list = [
 'Cap',
 'Elevated Signage',
@@ -168,12 +176,15 @@ if not ocr_coords.empty:
             output_path=output_path,
             iteration=iteration,
             group_events=True,
-            brands=['Vitality'],
-            cleaned_text_list=['Vitality'],
+            brands=tvgi_candidate_brands,
+            cleaned_text_list=tvgi_candidate_brands,
             position_tolerance=ocr_position_tolerance,
             size_tolerance=ocr_size_tolerance,
             angle_tolerance=ocr_angle_tolerance,
             min_frames=10,
+            review_base_url='https://sportssight-imagereview-fxgwfpddc4ewdfht.uksouth-01.azurewebsites.net/DatabaseBrandAssets',
+            review_folder='cricket',
+            review_database='ECB',
         )
 
         sql_tvgi_table = input('Name for the new OCR TVGI coordinate table in SQL: ')
@@ -200,8 +211,17 @@ def exposurePerEvent(match):
     assetResults      = pd.DataFrame()
     brandResults      = pd.DataFrame()
     icResults         = pd.DataFrame()
+    imageWidth        = None
+    imageHeight       = None
+    imageSize         = None
 
-    # ── SQL queries ──────────────────────────────────────────────────────────
+    def normalize_brand_label(series):
+        s = series.astype(str).str.strip()
+        s = s.str.replace('Logo - Brand - ', '', regex=False)
+        s = s.str.replace('Tyrrell-s', 'Tyrrells', regex=False)
+        return s
+
+    # ������ SQL queries ������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
     if brandAsset_method['OCR'].notna().any() or brandAsset_method['OCR_coordinates'].notna().any():
         try:
             ocrResults = lr.fromSQLquery(f"""
@@ -216,71 +236,56 @@ def exposurePerEvent(match):
             imageWidth  = int(imageSize_df.iloc[0, 1])
             imageHeight = int(imageSize_df.iloc[0, 0])
             imageSize   = imageWidth * imageHeight
-
-            #Define coordinates in order to work out a rough rectangular area          
-            x_cols = [
-                'BoxTopLeftX',
-                'BoxTopRightX',
-                'BoxBottomRightX',
-                'BoxBottomLeftX'
-            ]
-
-            y_cols = [
-                'BoxTopLeftY',
-                'BoxTopRightY',
-                'BoxBottomRightY',
-                'BoxBottomLeftY'
-            ]
-            
-            #Calculate area using those coordinates           
-            ocr_width = (
-                ocrResults[x_cols].max(axis=1)
-                - ocrResults[x_cols].min(axis=1)
-            )
-
-            ocr_height = (
-                ocrResults[y_cols].max(axis=1)
-                - ocrResults[y_cols].min(axis=1)
-            )
-
-            ocrResults['Box_Size_Perc'] = (
-                ocr_width * ocr_height
-            ) / imageSize
-
+            ocr_width   = ocrResults['BoxTopRightX']  - ocrResults['BoxTopLeftX']
+            ocr_height  = ocrResults['BoxBottomLeftY'] - ocrResults['BoxTopLeftY']
+            ocrResults['Box_Size_Perc'] = (ocr_width * ocr_height) / imageSize
         except Exception:
             print("No results in Toolkit_Cleaned_OCR_Results table")
-            sys.exit(1)
+            ocrResults['Box_Size_Perc'] = np.nan
 
     if brandAsset_method['BrandAssetPairing'].notna().any():
         try:
             brandAssetResults = lr.fromSQLquery(f"""
-                SELECT * FROM SportsSight_Raw_BrandAssets WHERE SportsEvent = '{match}'
+                SELECT * FROM SportsSight_Raw_BrandAssets WHERE SportsEvent = '{match}/'
             """, sqlServer, sqlDatabase)
-            ba_width  = (brandAssetResults['BrandBottomRightX'] - brandAssetResults['BrandTopLeftX']).abs()
-            ba_height = (brandAssetResults['BrandBottomRightY'] - brandAssetResults['BrandTopLeftY']).abs()
-            brandAssetResults['Box_Size_Perc'] = (ba_width * ba_height) / imageSize
+            if 'Brand' in brandAssetResults.columns:
+                brandAssetResults['Brand'] = normalize_brand_label(brandAssetResults['Brand'])
+            ba_width  = brandAssetResults['BrandBottomRightX'] - brandAssetResults['BrandTopLeftX']
+            ba_height = brandAssetResults['BrandBottomRightY'] - brandAssetResults['BrandTopLeftY']
+            if imageSize:
+                brandAssetResults['Box_Size_Perc'] = (ba_width * ba_height) / imageSize
+            else:
+                brandAssetResults['Box_Size_Perc'] = np.nan
         except Exception:
             print("No SportsSight_Raw_BrandAssets table found")
             sys.exit(1)
 
     try:
         assetResults = lr.fromSQLquery(f"""
-            SELECT * FROM SportsSight_Raw_Assets WHERE SportsEvent = '{match}'
+            SELECT * FROM SportsSight_Raw_Assets WHERE SportsEvent = '{match}/'
         """, sqlServer, sqlDatabase)
-        a_width  = (assetResults['BottomRightX'] - assetResults['TopLeftX']).abs()
-        a_height = (assetResults['BottomRightY'] - assetResults['TopLeftY']).abs()
-        assetResults['Box_Size_Perc'] = (a_width * a_height) / imageSize
+        a_width  = assetResults['BottomRightX'] - assetResults['TopLeftX']
+        a_height = assetResults['BottomRightY'] - assetResults['TopLeftY']
+        if imageSize:
+            assetResults['Box_Size_Perc'] = (a_width * a_height) / imageSize
+        else:
+            assetResults['Box_Size_Perc'] = np.nan
     except Exception:
         print("No SportsSight_Raw_Assets table found")
 
     if brandAsset_method['BrandOnly'].notna().any():
         try:
             brandResults = lr.fromSQLquery(f"""
-                SELECT * FROM SportsSight_Raw_Brands WHERE SportsEvent = '{match}'
+                SELECT * FROM SportsSight_Raw_Brands WHERE SportsEvent = '{match}/'
             """, sqlServer, sqlDatabase)
-            b_width  = (brandResults['BottomRightX'] - brandResults['TopLeftX']).abs()
-            b_height = (brandResults['BottomRightY'] - brandResults['TopLeftY']).abs()
-            brandResults['Box_Size_Perc'] = (b_width * b_height) / imageSize
+            if 'Brand' in brandResults.columns:
+                brandResults['Brand'] = normalize_brand_label(brandResults['Brand'])
+            b_width  = brandResults['BottomRightX'] - brandResults['TopLeftX']
+            b_height = brandResults['BottomRightY'] - brandResults['TopLeftY']
+            if imageSize:
+                brandResults['Box_Size_Perc'] = (b_width * b_height) / imageSize
+            else:
+                brandResults['Box_Size_Perc'] = np.nan
         except Exception:
             print("No SportsSight_Raw_Brands table found")
             sys.exit(1)
@@ -288,13 +293,13 @@ def exposurePerEvent(match):
     # if brandAsset_method['IC'].notna().any():
     try:
         icResults = lr.fromSQLquery(f"""
-                SELECT * FROM SportsSight_Raw_Classifications WHERE SportsEvent = '{match}'
+                SELECT * FROM SportsSight_Raw_Classifications WHERE SportsEvent = '{match}/'
             """, sqlServer, sqlDatabase)
     except Exception:
         print("No SportsSight_Raw_Classifications table found")
         sys.exit(1)
 
-    # ── Helper: filter methodology rows ──────────────────────────────────────
+    # ������ Helper: filter methodology rows ������������������������������������������������������������������������������������������������������������������
     def method_filter(**flags):
         """
         Returns rows from brandAsset_method matching the given column conditions.
@@ -309,7 +314,7 @@ def exposurePerEvent(match):
                 mask &= (brandAsset_method[col] == val)
         return brandAsset_method[mask].copy()
 
-    # ── Step 0: OCR coordinates ───────────────────────────────────────────────
+    # ������ Step 0: OCR coordinates ���������������������������������������������������������������������������������������������������������������������������������������������
     if not ocr_coords.empty:
         finalResults0 = coord.apply_SQL_coords(
             ocrResults, ocr_tvgi_coords, iteration,
@@ -321,7 +326,7 @@ def exposurePerEvent(match):
     else:
         finalResults0 = pd.DataFrame()
 
-    # ── Steps 1–11: methodology-driven processing ─────────────────────────────
+    # ������ Steps 1���11: methodology-driven processing ���������������������������������������������������������������������������������������
     ba_pairing = method_filter(
         BrandAssetPairing=1, OCR=None, IC=None, OCR_coordinates=None,
         BrandOnly=None, AssetOnly=None, Creative=None)
@@ -394,14 +399,14 @@ def exposurePerEvent(match):
     finalResults11 = func.ic_ocr_proc(ic_ocr, ocrResults, icResults, sport, iteration) \
         if not ic_ocr.empty else pd.DataFrame()
 
-    # ── Combine ───────────────────────────────────────────────────────────────
+    # ������ Combine ���������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������������
     finalResults_combined = pd.concat([
         finalResults0, finalResults1, finalResults2, finalResults3,
         finalResults4, finalResults5, finalResults6, finalResults7,
         finalResults8, finalResults9, finalResults10, finalResults11,
     ], ignore_index=True)
 
-    # ── Missing OCR step ──────────────────────────────────────────────────────
+    # ������ Missing OCR step ������������������������������������������������������������������������������������������������������������������������������������������������������������������
     if missingOCRStep:
         final_output = func.missing_ocr_proc(
             brandAsset_method, ocrResults, assetResults, finalResults_combined,
@@ -422,11 +427,15 @@ def exposurePerEvent(match):
     if final_output.empty:
         return pd.DataFrame()
 
-    # ── Final formatting ──────────────────────────────────────────────────────
+    # ������ Final formatting ������������������������������������������������������������������������������������������������������������������������������������������������������������������
     final_output['Filename'] = final_output['Filename'].str[-10:]
     final_output['Event']    = final_output['Event'].str.rstrip('/')
 
-    final_output_v2 = func.update_screen_location(final_output, imageWidth, imageHeight)
+    if imageWidth is None or imageHeight is None:
+        final_output['ScreenLocation'] = None
+        final_output_v2 = final_output
+    else:
+        final_output_v2 = func.update_screen_location(final_output, imageWidth, imageHeight)
     final_output_v3 = func.final_cleaning(final_output_v2, brandAsset_method)
 
     print(f"Exposure processing for {match} finished in {time.perf_counter() - start_time:.4f} seconds")
@@ -441,10 +450,30 @@ for eventName in listOfEvents:
     print(f"Processing: {eventName}")
     all_results = pd.concat([all_results, exposurePerEvent(eventName)], ignore_index=True)
 
-all_results.to_csv(
-    r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Charlie Reed\SportsSight\Cricket\pls_ECB_WIT20_v2.csv',
-    index=False
-)
+# Keep only rows that contain the minimum required output fields.
+required_cols_for_output = ['ModelType', 'Sport', 'Event', 'Filename', 'Brand', 'Asset', 'Probability']
+existing_required_cols = [c for c in required_cols_for_output if c in all_results.columns]
+if existing_required_cols:
+    for c in existing_required_cols:
+        if all_results[c].dtype == object:
+            all_results[c] = all_results[c].replace(r'^\s*$', np.nan, regex=True)
+    valid_mask = all_results[existing_required_cols].notna().all(axis=1)
+    dropped_rows = int((~valid_mask).sum())
+    if dropped_rows > 0:
+        print(f"Filtered out {dropped_rows} placeholder/invalid rows before CSV export.")
+    all_results = all_results.loc[valid_mask].copy()
+
+print(f"Final valid output rows: {len(all_results)}")
+if not all_results.empty and 'ModelType' in all_results.columns:
+    print(all_results['ModelType'].value_counts(dropna=False).to_string())
+
+csv_output_path = r'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Cricket\outputs\pls_ECB_WIT20_v2.csv'
+try:
+    all_results.to_csv(csv_output_path, index=False)
+except PermissionError:
+    fallback_path = fr'Z:\Shared\OCT\LDN\FSE\FSEData\Technology Team\Thomas Bradley\SportsSight_CR\Post-Processing\Cricket\outputs\pls_ECB_WIT20_v2_{dateStamp}.csv'
+    print(f"Warning: could not write {csv_output_path} (file may be open). Writing fallback CSV to {fallback_path}")
+    all_results.to_csv(fallback_path, index=False)
 
 # ============================================================================
 # UPLOAD TO SQL
@@ -453,7 +482,7 @@ all_results.to_csv(
 def upload_to_sql(df, label='results'):
     """Upload a DataFrame to Toolkit_AzureModels_CombinedResults in chunks."""
     chunk_size = 10000
-    chunks = np.array_split(df, max(1, len(df) // chunk_size))
+    chunks = [df.iloc[start:start + chunk_size] for start in range(0, len(df), chunk_size)]
     print(f"Uploading {label}: {len(df)} rows in {len(chunks)} chunks.")
     for i, chunk in enumerate(chunks):
         try:

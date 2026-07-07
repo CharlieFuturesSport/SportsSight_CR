@@ -256,6 +256,7 @@ WHERE NOT EXISTS (
 -- Insert any new programmes for this project
 	DECLARE @overWriteExisting INT = (SELECT overwriteexisting FROM #variables)
 	DECLARE @tvTrackProjectId INT =  (SELECT tvTrackProjectID FROM #variables)
+	DECLARE @clientID INT = (SELECT clientID FROM #variables)
 
 	IF (@overWriteExisting = 1)
 		BEGIN
