@@ -15,6 +15,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Generated output folders and manual backups (use git history instead)
+outputs/
+*.backup_*
+
 # Temporary/lock files
 *.lock
 ~$*
