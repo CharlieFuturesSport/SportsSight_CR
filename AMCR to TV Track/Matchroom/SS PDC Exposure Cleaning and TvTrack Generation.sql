@@ -326,34 +326,22 @@ Event: Nordic Darts Masters
 
 /*
 	Open 'Move from AMCR to TvTrack' and go to the first section
-	(that file's dictionary-check block, Matchroom, then its manual switch to
-	TvTrack to insert Programme rows - see step 2 in the workflow map above)
 */
 --------------------------------------------------------------------
 /*
-	SECTION 2 (of THIS file)
-	Still DB: MATCHROOM. Only run this after step 2 above has completed and
-	created the TvTrack Programme rows for these events - the INSERT INTO
-	EXPOSURE below joins to Programme via a linked name and needs those rows
-	to exist.
+	SECTION 2
+	Restored from the clean WST original template (CR-ORIGIONAL-SS WST
+	Exposure Cleaning and TvTrack Generation.sql) - this section was missing
+	from this file. Uses the same #variables values already built in Section 1
+	above (ClientID 3411, TvTrackProjectID 835), so no values need editing here.
 */
-
-UPDATE Toolkit_AzureModels_CombinedResults
-SET Asset = 'Back Wall - Outer Side'
-WHERE Event + '/' IN (SELECT SportsEvent FROM #SportEvents)
-  AND Asset = 'Back Wall - Outer';
-
-UPDATE Toolkit_AzureModels_CombinedResults
-SET Asset = 'Graphic - Scorecard'
-WHERE Event + '/' IN (SELECT SportsEvent FROM #SportEvents)
-  AND Asset = 'Graphic - scorecard';
 
 -- Insert into exposure
 	DECLARE @TvTrackProjectID INT = (SELECT tvTrackProjectID FROM #variables);
 	DECLARE @clientID INT = (SELECT clientID FROM #variables);
 
 	INSERT INTO EXPOSURE
-	SELECT 
+	SELECT
 		BrandID,
 		TP_ID,
 		NULL AS SubTP_ID,
@@ -390,23 +378,10 @@ WHERE Event + '/' IN (SELECT SportsEvent FROM #SportEvents)
 			ON Touchpoints.TouchpointName COLLATE SQL_Latin1_General_CP1_CI_AS = #duration_grouped.touchpoint
 		INNER JOIN dbo.[CMGSQLNODE01\FSE.TvTrack.Programme] Programme
 			ON Programme.PR_Name COLLATE SQL_Latin1_General_CP1_CI_AS = #duration_grouped.Event + '.xlsx'
-	WHERE Programme.ProjectID = @TVTrackProjectID
+	WHERE Programme.ProjecTID = @TVTrackProjectID
 	ORDER BY id
 
 /*
-	Open 'Move from AMCR to TvTrack', Section 2 (DB: TVTRACK) - final step,
-	moves this Exposure data into TvTrack proper.
+	Open 'Move from AMCR to TvTrack'
 */
 ----------------------------------------
-
-
-
-SELECT
-    ProjectID,
-    COUNT(*) AS ProgrammeCount
-FROM dbo.[CMGSQLNODE01\FSE.TvTrack.Programme]
-WHERE PR_Name IN ('20260605_PDC_NORD_Day1Evening.xlsx','20260606_PDC_NORD_Day2Evening.xlsx')
-GROUP BY ProjectID
-ORDER BY ProgrammeCount DESC;
-
-

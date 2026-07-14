@@ -56,7 +56,12 @@ def calculate_iou_vectorized(boxes1, boxes2):
     boxes2_area = (boxes2[:, :, 2] - boxes2[:, :, 0]) * (boxes2[:, :, 3] - boxes2[:, :, 1])
     
     union_area = boxes1_area + boxes2_area - intersection_area
-    iou = np.where(union_area > 0, intersection_area / union_area, 0)
+    iou = np.divide(
+        intersection_area,
+        union_area,
+        out=np.zeros_like(intersection_area, dtype=float),
+        where=union_area > 0,
+    )
     
     return iou
 
@@ -315,6 +320,8 @@ def brand_asset_ocr_proc(ba_pairing_ocr, brandAssetResults, ocrResults, sport, i
     combined_ba['Event'] = event
     combined_ba['Filename'] = combined_ba['Filename'].str[-10:]
     combined_ba = combined_ba.rename(columns=column_mapping_v2)
+    if 'OCR_Text' not in combined_ba.columns:
+        combined_ba['OCR_Text'] = pd.NA
     combined_ba['Original_BrandMessaging'] = combined_ba['OCR_Text']
     combined_ba['Original_Tag'] = combined_ba['Source']
     combined_ba['Probability'] = combined_ba['BrandConfidence']

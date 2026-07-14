@@ -60,6 +60,7 @@ valid_assets_list = [
 'Sleeve',
 'Chest Branding - Player',
 'Chest Branding - Referee',
+'Chest Branding - Cheerleader',
 'Stage Board',
 'Stage Table',
 'Promotional - Placard',
@@ -233,7 +234,7 @@ def exposurePerEvent(match):
             print("No SportsSight_Raw_BrandAssets table found")
             sys.exit(1)
 
-    if brandAsset_method['AssetOnly'].notna().any():
+    if brandAsset_method['AssetOnly'].notna().any() or missingOCRStep:
         try:
             assetResults = lr.fromSQLquery(f"""
             SELECT * FROM SportsSight_Raw_Assets WHERE SportsEvent = '{match}'

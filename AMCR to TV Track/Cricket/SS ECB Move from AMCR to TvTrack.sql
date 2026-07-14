@@ -21,6 +21,34 @@
 		WHERE Client_Name LIKE '%ecb%'
 */
 
+
+
+SELECT ProgID, PR_Name, ProjectID, Uploaded, StartTime, EndTime
+FROM dbo.Programme
+WHERE PR_Name LIKE '12731%'
+   OR PR_Name LIKE '12732%'
+   OR (ProjectID = 1042 AND (PR_Name LIKE '%Gla%' OR PR_Name LIKE '%Glo%' OR PR_Name LIKE '%Mid%' OR PR_Name LIKE '%Sur%'));
+
+
+SELECT Event, COUNT(*) AS RowCount
+FROM [CMGSQLNODE01\FSE.ECB.Toolkit_AzureModels_CombinedResults]
+WHERE Event LIKE '12731%' OR Event LIKE '12732%'
+GROUP BY Event;
+
+
+SELECT Event, COUNT(*) AS Cnt
+FROM [CMGSQLNODE01\FSE.ECB.Toolkit_AzureModels_CombinedResults]
+WHERE Event LIKE '12731%' OR Event LIKE '12732%'
+GROUP BY Event;
+
+
+SELECT Event, COUNT(*) AS Cnt
+FROM [CMGSQLNODE01\FSE.ECB.Toolkit_AzureModels_CombinedResults]
+WHERE (LOWER(Event) LIKE '%gla%' AND LOWER(Event) LIKE '%glo%')
+   OR (LOWER(Event) LIKE '%mid%' AND LOWER(Event) LIKE '%sur%')
+GROUP BY Event
+ORDER BY Event;
+
 -- Check for project name
 	SELECT
     *

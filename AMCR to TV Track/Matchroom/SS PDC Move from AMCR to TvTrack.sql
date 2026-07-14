@@ -1,3 +1,24 @@
+
+SELECT PR_Name, ProgID, Uploaded, StartTime, EndTime
+FROM dbo.Programme
+WHERE ProjectID = 835
+AND PR_Name IN (
+'20260605_PDC_NORD_Day1Evening.xlsx',
+'20260606_PDC_NORD_Day2Evening.xlsx'
+)
+ORDER BY PR_Name;
+
+SELECT p.PR_Name, COUNT(*) AS ExposureRows
+FROM dbo.Exposure e
+JOIN dbo.Programme p ON p.ProgID = e.ProgrammeID
+WHERE e.ProjectID = 835
+AND p.PR_Name IN (
+'20260605_PDC_NORD_Day1Evening.xlsx',
+'20260606_PDC_NORD_Day2Evening.xlsx'
+)
+GROUP BY p.PR_Name;
+
+
 /*
 PDC
 Move from AMCR to TvTrack

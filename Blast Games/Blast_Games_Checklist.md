@@ -20,5 +20,5 @@ Tick boxes as each stage is completed.
 
 - Total games: 11
 - Kishan assets received: 4
-- OCR cleaned completed: 0
-- Post processed completed: 0
+- OCR cleaned completed: 4
+- Post processed completed: 4

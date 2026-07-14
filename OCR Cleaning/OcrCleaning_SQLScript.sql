@@ -1,50 +1,79 @@
 -- OCR Cleaning
+-- Currently scoped to: Blast (AccessFlag = 'ecb_2026'), all 11 checklist match IDs
 
 -- ============================================================
 -- STAGE 1: Build event list for this run
 -- ============================================================
 
--- Stage 1A (optional helper for Blast)
-SELECT
-     '(''' + SportsEvent + '''),'
-FROM [dbo].[CMGSQLNODE01\FSE.ThemisDevelopment.ComputerVisionProcessingJobsHistory]
-WHERE Sport = 'cricket'
-AND CREATED >= GETUTCDATE() - 60
-AND LOWER(SportsEvent) LIKE '%blast%'
-ORDER BY created desc;
+DROP TABLE IF EXISTS #BlastMatches;
+CREATE TABLE #BlastMatches
+(
+    MatchID INT PRIMARY KEY,
+    MatchLabel VARCHAR(120) NOT NULL
+);
 
--- Stage 1B: run scope (single event)
-drop table if exists #SportEvents
-CREATE TABLE  #SportEvents (
+INSERT INTO #BlastMatches (MatchID, MatchLabel)
+VALUES
+(12729, '220526 Mens Blast Group Som v Ham'),
+(12730, '220526 Womens Blast Group Som v Ham'),
+(12731, '230526 Mens Blast Group Gla v Glo'),
+(12732, '240526 Mens Blast Group Mid v Sur'),
+(12733, '260526 Mens Blast Group Ham v Ess'),
+(12734, '260526 Womens Blast Group Ham v Ess'),
+(12735, '270526 Mens Blast Group Lei v Der'),
+(12736, '290526 Mens Blast Group Wor v War'),
+(12737, '300526 Mens Blast Group Sus v Mid'),
+(12738, '310526 Mens Blast Group War v Nor'),
+(12739, '030626 Mens Blast Group Sur v Mid');
+
+DROP TABLE IF EXISTS #SportEvents;
+CREATE TABLE #SportEvents
+(
     ID INT IDENTITY(1,1),
     SportsEvent VARCHAR(255)
-)
+);
 
-INSERT INTO #SportEvents VALUES
-('20260605_PDC_NORD_Day1Evening/'),
-('20260606_PDC_NORD_Day2Evening/');
+-- Resolve actual event names from raw OCR data using the match IDs above.
+INSERT INTO #SportEvents (SportsEvent)
+SELECT DISTINCT
+    CASE
+        WHEN RIGHT(RAW.SportsEvent, 1) = '/' THEN RAW.SportsEvent
+        ELSE RAW.SportsEvent + '/'
+    END
+FROM #BlastMatches M
+JOIN Toolkit_ComputerVisionOcrResults RAW
+    ON RAW.SportsEvent LIKE CAST(M.MatchID AS VARCHAR(10)) + '\_%' ESCAPE '\'
+WHERE LOWER(RAW.SportsEvent) LIKE '%blast%';
 
-
-
--- Check exact + near matches for your 3 IDs
-SELECT TOP 200 RAW.SportsEvent, COUNT(*) AS Cnt
+-- Check raw OCR results per resolved event.
+SELECT RAW.SportsEvent, COUNT(*) AS Cnt
 FROM Toolkit_ComputerVisionOcrResults RAW
 JOIN #SportEvents E
-  ON RAW.SportsEvent LIKE REPLACE(E.SportsEvent, '/', '') + '%'
+    ON RAW.SportsEvent = E.SportsEvent
 GROUP BY RAW.SportsEvent
 ORDER BY RAW.SportsEvent;
+
+-- Any match IDs that did NOT resolve to an event name - investigate before continuing.
+SELECT M.MatchID, M.MatchLabel
+FROM #BlastMatches M
+WHERE NOT EXISTS
+(
+    SELECT 1
+    FROM #SportEvents E
+    WHERE E.SportsEvent LIKE CAST(M.MatchID AS VARCHAR(10)) + '\_%' ESCAPE '\'
+)
+ORDER BY M.MatchID;
 
 -- ============================================================
 -- STAGE 2: Review existing cleaning rules
 -- ============================================================
 
-
-
-
-
 -- Stage 2A: Check existing Human rules for this AccessFlag
-select * from Toolkit_OCR_cleaning_rules where AccessFlag = 'NordicDartsMasters'
-and Row_addition_source = 'human'
+SELECT *
+FROM Toolkit_OCR_cleaning_rules
+WHERE AccessFlag = 'ecb_2026'
+  AND Row_addition_source = 'Human'
+ORDER BY Reported_brand;
 
 -- Stage 2B: Add new Human rules (edit only VALUES rows)
 -- Manual fields per row:
@@ -61,6 +90,11 @@ and Row_addition_source = 'human'
 --   Primary_Search_Term = IF(Reported_creative blank, Reported_brand, Reported_creative)
 --   SearchTermLen = LEN(Primary_Search_Term)
 --   min_levenshtein_value = IF(LEN(Primary_Search_Term)<3,1,0.75-(LEN(Primary_Search_Term)*0.0075))
+--
+-- NOTE: the full current Blast brand set (55 brands across all 11 matches) is
+-- already seeded via OCR Cleaning/Blast_All_Games_OCR_Cleaning.sql, Stage 1B.
+-- Use this block only for brands discovered *after* that, e.g. from reviewing
+-- Stage 3.3 MANUAL_REVIEW output below. NOT_EXISTS-guarded, safe to re-run.
 
 INSERT INTO Toolkit_OCR_Cleaning_Rules
 SELECT
@@ -84,16 +118,12 @@ FROM
 (
     VALUES
         -- Reported_brand, Reported_creative, AccessFlag
-        ('Mr Vegas', '', 'NordicDartsMasters'),
-        ('Winmau', '', 'NordicDartsMasters'),
-        ('Werner Ladders', '', 'NordicDartsMasters'),
-        ('Werner Ladders', 'WERNER', 'NordicDartsMasters'),
-        ('Werner Ladders', 'LADDERS', 'NordicDartsMasters'),
-        ('Falken Tyres', '', 'NordicDartsMasters'),
-        ('Forum Copenhagen', '', 'NordicDartsMasters'),
-        ('Viaplay', '', 'NordicDartsMasters'),
-        ('Smart Water', '', 'NordicDartsMasters'),
-        ('Fireball', '', 'NordicDartsMasters')
+        -- Both confirmed missing rules despite appearing in an already-processed
+        -- match (12732) - see Blast_Brand_Detection_Check.sql / Blast_All_Current_Rules.sql
+        ('IBC', '', 'ecb_2026'),
+        ('Ark Build', '', 'ecb_2026'),
+        ('London Pride', 'Pride', 'ecb_2026')
+        -- Add any further newly-discovered Blast brands here as they come up.
 ) I (Reported_brand, Reported_creative, AccessFlag)
 CROSS APPLY
 (
@@ -109,40 +139,31 @@ WHERE NOT EXISTS
     FROM Toolkit_OCR_Cleaning_Rules R
     WHERE R.AccessFlag = I.AccessFlag
     AND R.Primary_Search_Term = X.Primary_Search_Term
-)
+);
 
 SELECT
-COUNT(*) AS HumanRuleCount
+    COUNT(*) AS HumanRuleCount
 FROM Toolkit_OCR_Cleaning_Rules
-WHERE AccessFlag = 'NordicDartsMasters'
+WHERE AccessFlag = 'ecb_2026'
 AND Row_addition_source = 'Human';
 
 SELECT
-Reported_brand,
-Primary_search_term,
-Min_Levenshtein_Value
+    Reported_brand,
+    Primary_search_term,
+    Min_Levenshtein_Value
 FROM Toolkit_OCR_Cleaning_Rules
-WHERE AccessFlag = 'NordicDartsMasters'
+WHERE AccessFlag = 'ecb_2026'
 AND Row_addition_source = 'Human'
 ORDER BY Reported_brand, Primary_search_term;
-
-
-
-
-
-SELECT SportsEvent, brand, COUNT(*)
-FROM Toolkit_Cleaned_OCR_Results
-WHERE AccessFlag = 'NordicDartsMasters' AND Brand = 'Werner Ladders'
-GROUP BY SportsEvent, brand;
 
 -- ============================================================
 -- STAGE 3: Apply OCR cleaning pipeline
 -- ============================================================
 
-DECLARE @specificAccessFlag VARCHAR(100) = 'NordicDartsMasters';
+DECLARE @specificAccessFlag VARCHAR(100) = 'ecb_2026';
+DECLARE @autoAcceptMaxOcrCount INT = 3;
 
 -- ========= RUN KPIs (before/after) =========
-SET @specificAccessFlag = 'NordicDartsMasters';
 
 -- 1) Scope check
 SELECT 'Scope' AS section, SportsEvent
@@ -187,19 +208,15 @@ LEFT JOIN Toolkit_Cleaned_OCR_Results C
    AND C.AccessFlag = @specificAccessFlag
 WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
 
-
--- 6) 
-
-    SELECT DISTINCT brand FROM Toolkit_Cleaned_OCR_Results C
-    WHERE C.AccessFlag = 'NordicDartsMasters'
-    AND C.SportsEvent IN (SELECT SportsEvent FROM #SportEvents)
-    ORDER BY 1
+-- 6) Distinct brands cleaned so far, this scope
+SELECT DISTINCT brand FROM Toolkit_Cleaned_OCR_Results C
+WHERE C.AccessFlag = @specificAccessFlag
+AND C.SportsEvent IN (SELECT SportsEvent FROM #SportEvents)
+ORDER BY 1;
 
 -- --------------------
 -- STEP 3.1: Insert exact Human matches
 -- --------------------
-
-SET @specificAccessFlag = 'NordicDartsMasters'
 
 INSERT INTO Toolkit_Cleaned_OCR_Results
 SELECT --TOP 100
@@ -238,7 +255,7 @@ FROM (
             FROM Toolkit_ComputerVisionOcrResults RAW
                LEFT JOIN Toolkit_Cleaned_OCR_Results CLEAN
                   ON RAW.OcrLineId = CLEAN.OcrLineID
-                  AND AccessFlag = @specificAccessFlag
+                  AND CLEAN.AccessFlag = @specificAccessFlag
             WHERE RAW.SportsEvent in ( SELECT SportsEvent FROM #SportEvents )
             AND CLEAN.ID IS NULL
     ) RAW
@@ -248,15 +265,11 @@ FROM (
            AND Row_addition_source = 'Human'
            AND Reported_brand <> 'IGNORE'
            AND AccessFlag = @specificAccessFlag
-           AND (other_on_screen_text_required = '')
-
+           AND (other_on_screen_text_required = '');
 
 -- --------------------
 -- STEP 3.2: Insert exact Automated matches
 -- --------------------
-
-DECLARE @specificAccessFlag VARCHAR(100);
-SET @specificAccessFlag = 'NordicDartsMasters'
 
 insert into Toolkit_Cleaned_OCR_Results
 SELECT --TOP 100
@@ -295,14 +308,14 @@ FROM (
             FROM Toolkit_ComputerVisionOcrResults RAW
                LEFT JOIN Toolkit_Cleaned_OCR_Results CLEAN
                   ON RAW.OcrLineId = CLEAN.OcrLineID
-                  AND AccessFlag = @specificAccessFlag
+                  AND CLEAN.AccessFlag = @specificAccessFlag
             WHERE RAW.SportsEvent in ( SELECT SportsEvent FROM #SportEvents )
             AND CLEAN.ID IS NULL
          ) RAW
     INNER JOIN Toolkit_OCR_cleaning_rules RULES
         ON (RAW.TEXT = RULES.Primary_search_term)
            AND Row_manually_confirmed = 1
-           AND Row_addition_source = 'Automated' --'Human'
+           AND Row_addition_source = 'Automated'
            AND exact_match_required = 1
            AND substring_search_allowed = 0
            AND Reported_brand <> 'IGNORE'
@@ -311,18 +324,14 @@ FROM (
 WHERE SportsEvent IN
       (
           SELECT SportsEvent FROM #SportEvents
-      )
+      );
 
 -- --------------------
 -- STEP 3.3: Generate, review, and apply new exact-match terms
 -- --------------------
 
 -- IDENTIFY SEARCH TERMS
-DECLARE @specificAccessFlag33 VARCHAR(100) = 'NordicDartsMasters'
-DECLARE @autoAcceptMaxOcrCount INT
-SET @autoAcceptMaxOcrCount = 3
-
-DROP TABLE IF EXISTS #Stage33Candidates
+DROP TABLE IF EXISTS #Stage33Candidates;
 
 ;WITH PendingOCR AS
 (
@@ -332,7 +341,7 @@ DROP TABLE IF EXISTS #Stage33Candidates
     FROM Toolkit_ComputerVisionOcrResults OCR
         LEFT JOIN Toolkit_Cleaned_OCR_Results Inserted
             ON OCR.OcrLineId = Inserted.OcrLineId
-            AND Inserted.AccessFlag = @specificAccessFlag33
+            AND Inserted.AccessFlag = @specificAccessFlag
     WHERE OCR.SportsEvent IN
           (
               SELECT SportsEvent FROM #SportEvents
@@ -348,7 +357,7 @@ UnseenOCR AS
     FROM PendingOCR
         LEFT JOIN [dbo].[Toolkit_OCR_cleaning_rules] CurrentOCR
             ON PendingOCR.TEXT = CurrentOCR.Primary_Search_Term
-            AND CurrentOCR.AccessFlag = @specificAccessFlag33
+            AND CurrentOCR.AccessFlag = @specificAccessFlag
     WHERE CurrentOCR.ID IS NULL
 ),
 CompBrands AS
@@ -363,7 +372,7 @@ CompBrands AS
     WHERE [Min_Levenshtein_Value] < 1
           AND reported_brand <> 'IGNORE'
           AND [exact_match_required] <> 1
-            AND AccessFlag = @specificAccessFlag33
+            AND AccessFlag = @specificAccessFlag
           AND Row_addition_source = 'Human'
 ),
 RankedMatches AS
@@ -404,10 +413,10 @@ SELECT
     END AS ReviewAction
 INTO #Stage33Candidates
 FROM RankedMatches
-WHERE MatchRank = 1
+WHERE MatchRank = 1;
 
 -- 3.3.1 Generate AUTO_ACCEPT rows
-DROP TABLE IF EXISTS #Stage33AutoAcceptToInsert
+DROP TABLE IF EXISTS #Stage33AutoAcceptToInsert;
 SELECT
     C.Reported_brand,
     C.Reported_creative,
@@ -429,7 +438,7 @@ AND NOT EXISTS
     FROM Toolkit_OCR_Cleaning_Rules R
     WHERE R.AccessFlag = C.AccessFlag
     AND R.Primary_Search_Term = C.Primary_Search_Term
-)
+);
 
 -- Step 3.3.1A: Review AUTO_ACCEPT rows
 SELECT
@@ -448,7 +457,7 @@ SELECT
     PercentDistance,
     ReviewAction
 FROM #Stage33AutoAcceptToInsert
-ORDER BY ocrCount DESC, Reported_brand, PercentDistance DESC
+ORDER BY ocrCount DESC, Reported_brand, PercentDistance DESC;
 
 -- Step 3.3.1B: Insert AUTO_ACCEPT rows into Cleaning Rules
 INSERT INTO Toolkit_OCR_Cleaning_Rules
@@ -464,10 +473,10 @@ SELECT
    A.substring_search_allowed,
    A.min_levenshtein_value,
    ''
-FROM #Stage33AutoAcceptToInsert A
+FROM #Stage33AutoAcceptToInsert A;
 
 -- 3.3.2 Generate MANUAL_REVIEW rows (> @autoAcceptMaxOcrCount OCR count)
-DROP TABLE IF EXISTS #Stage33ManualReviewToInsert
+DROP TABLE IF EXISTS #Stage33ManualReviewToInsert;
 SELECT
     C.Reported_brand,
     C.Reported_creative,
@@ -488,7 +497,7 @@ AND NOT EXISTS
     FROM Toolkit_OCR_Cleaning_Rules R
     WHERE R.AccessFlag = C.AccessFlag
     AND R.Primary_Search_Term = C.Primary_Search_Term
-)
+);
 
 -- Step 3.3.2A: Review pending MANUAL_REVIEW rows (> @autoAcceptMaxOcrCount OCR count)
 SELECT
@@ -504,25 +513,78 @@ ORDER BY
     H.Reported_brand,
     H.Reported_creative,
     H.ocrCount DESC,
-    H.Primary_Search_Term
+    H.Primary_Search_Term;
+
+
+SELECT TOP 15
+    SportsEvent,
+    Filename,
+    'https://sportssight-imagereview-fxgwfpddc4ewdfht.uksouth-01.azurewebsites.net/DatabaseBrandAssets'
+    + '?FolderName=cricket&DatabaseName=ECB'
+    + '&SportsEvent='
+    + REPLACE(SportsEvent, '/', '')
+    + '&ImageName='
+    + SUBSTRING(
+        Filename,
+        CHARINDEX('/', Filename) + 1,
+        LEN(Filename)
+      ) AS ReviewUrl
+FROM Toolkit_ComputerVisionOcrResults
+WHERE TEXT = 'woodland'
+AND SportsEvent LIKE '%Blast%'
+ORDER BY NEWID();
+
 
 -- Step 3.3.2B: Fast manual review ordered by brand/creative
 -- 1) Reject specific terms after review.
 -- Tip: paste quoted Primary_Search_Term values into the IN list below (one per line).
+
+
+
+-- Quick counts by decision
+
 UPDATE #Stage33ManualReviewToInsert
 SET Decision = 'REJECT'
 WHERE Decision = 'PENDING'
 AND Primary_Search_Term IN
 (
-    ''
-)
+    'CIBC',
+    'LANDSCAPES',
+    'nice',
+    'MIKE',
+    'LIKE',
+    'nick',
+    'PRICE',
+    'PRIME',
+    'RIDE',
+    'PRIZE',
+    'gut health'
+);
+
+
+SELECT Decision, COUNT(*) AS Cnt
+FROM #Stage33ManualReviewToInsert
+GROUP BY Decision;
+
+-- What's been rejected (should be your 11 terms)
+SELECT Reported_brand, Reported_creative, Primary_Search_Term, ocrCount
+FROM #Stage33ManualReviewToInsert
+WHERE Decision = 'REJECT'
+ORDER BY ocrCount DESC;
+
+-- What's still PENDING (about to default to ACCEPT — should be the other 266)
+SELECT Reported_brand, Reported_creative, Primary_Search_Term, ocrCount
+FROM #Stage33ManualReviewToInsert
+WHERE Decision = 'PENDING'
+ORDER BY ocrCount DESC;
+
 
 -- 2) Accept everything else that remains pending.
 UPDATE H
 SET
     H.Decision = 'ACCEPT'
 FROM #Stage33ManualReviewToInsert H
-WHERE H.Decision = 'PENDING'
+WHERE H.Decision = 'PENDING';
 
 -- Re-run Step 3.3.2A any time before accepting remainder.
 
@@ -541,12 +603,9 @@ SELECT
     H.min_levenshtein_value,
     ''
 FROM #Stage33ManualReviewToInsert H
-WHERE H.Decision = 'ACCEPT'
+WHERE H.Decision = 'ACCEPT';
 
 -- Step 3.3.4: Rerun AUTOMATED exact-match insert after new rules were added
-DECLARE @specificAccessFlag33 VARCHAR(100)
-SET @specificAccessFlag33 = 'NordicDartsMasters'
-
 insert into Toolkit_Cleaned_OCR_Results
 SELECT-- TOP 100
     NEWID() AS id,
@@ -584,30 +643,27 @@ FROM (
             FROM Toolkit_ComputerVisionOcrResults RAW
                LEFT JOIN Toolkit_Cleaned_OCR_Results CLEAN
                   ON RAW.OcrLineId = CLEAN.OcrLineID
-                        AND AccessFlag = @specificAccessFlag33
+                        AND CLEAN.AccessFlag = @specificAccessFlag
             WHERE RAW.SportsEvent in ( SELECT SportsEvent FROM #SportEvents )
             AND CLEAN.ID IS NULL
          ) RAW
     INNER JOIN Toolkit_OCR_cleaning_rules RULES
         ON (RAW.TEXT = RULES.Primary_search_term)
            AND Row_manually_confirmed = 1
-           AND Row_addition_source = 'Automated' --'Human'
+           AND Row_addition_source = 'Automated'
            AND exact_match_required = 1
            AND substring_search_allowed = 0
            AND Reported_brand <> 'IGNORE'
-           AND AccessFlag = @specificAccessFlag33
+           AND AccessFlag = @specificAccessFlag
            AND (other_on_screen_text_required = '')
 WHERE SportsEvent IN
       (
           SELECT SportsEvent FROM #SportEvents
-      )
-
+      );
 
 -- --------------------
 -- STEP 3.4: Insert substring matches (Human rules)
 -- --------------------
-DECLARE @specificAccessFlag33 VARCHAR(100)
-SET @specificAccessFlag33 = 'NordicDartsMasters'
 
 --MANUAL AS PART OF A STRING
 INSERT INTO Toolkit_Cleaned_OCR_Results
@@ -669,7 +725,7 @@ INSERT INTO Toolkit_Cleaned_OCR_Results
             FROM Toolkit_ComputerVisionOcrResults RAW
                LEFT JOIN Toolkit_Cleaned_OCR_Results CLEAN
                   ON RAW.OcrLineId = CLEAN.OcrLineID
-                        AND AccessFlag = @specificAccessFlag33
+                        AND CLEAN.AccessFlag = @specificAccessFlag
             WHERE RAW.SportsEvent in ( SELECT SportsEvent FROM #SportEvents )
             AND CLEAN.ID IS NULL
          ) RAW
@@ -679,16 +735,16 @@ INSERT INTO Toolkit_Cleaned_OCR_Results
             AND Row_addition_source = 'Human'
             AND Row_manually_confirmed = 1
             AND Reported_brand <> 'IGNORE'
-            AND AccessFlag = @specificAccessFlag33
+            AND AccessFlag = @specificAccessFlag
             AND (other_on_screen_text_required = '')
     WHERE SportsEvent IN
       (
           SELECT SportsEvent FROM #SportEvents
-      )
+      );
 
-
-DECLARE @specificAccessFlag33 VARCHAR(100)
-SET @specificAccessFlag33 = 'NordicDartsMasters';
+-- ============================================================
+-- STAGE 4: Post-run KPI checks
+-- ============================================================
 
 SELECT
     COUNT(*) AS RawRows,
@@ -701,63 +757,12 @@ SELECT
 FROM Toolkit_ComputerVisionOcrResults RAW
 LEFT JOIN Toolkit_Cleaned_OCR_Results C
     ON RAW.OcrLineId = C.OcrLineID
-    AND C.AccessFlag = @specificAccessFlag33
+    AND C.AccessFlag = @specificAccessFlag
 WHERE RAW.SportsEvent IN (SELECT SportsEvent FROM #SportEvents);
 
-
-
-SELECT SportsEvent, brand, COUNT(*)
+SELECT SportsEvent, brand, COUNT(*) AS Cnt
 FROM Toolkit_Cleaned_OCR_Results
-WHERE AccessFlag = 'NordicDartsMasters' AND Brand = 'Werner Ladders'
-GROUP BY SportsEvent, brand;
-
-
-DELETE FROM Toolkit_AzureModels_CombinedResults
-WHERE Event IN ('20260605_PDC_NORD_Day1Evening', '20260606_PDC_NORD_Day2Evening');
-
-
-
-SELECT AccessFlag, COUNT(*)
-FROM Toolkit_Cleaned_OCR_Results
-WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
-GROUP BY AccessFlag;
-
-
-DELETE FROM Toolkit_Cleaned_OCR_Results
-WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
-  AND AccessFlag = 'Nordic';
-
-
-  DELETE FROM Toolkit_AzureModels_CombinedResults
-WHERE Event IN ('20260605_PDC_NORD_Day1Evening', '20260606_PDC_NORD_Day2Evening');
-
-
-SELECT AccessFlag, brand, COUNT(*)
-FROM Toolkit_Cleaned_OCR_Results
-WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
-GROUP BY AccessFlag, brand
-ORDER BY AccessFlag, brand;
-
-
-
-SELECT AccessFlag, MIN(ID) AS EarliestRuleID, MAX(ID) AS LatestRuleID, COUNT(*) AS RuleCount
-FROM Toolkit_OCR_Cleaning_Rules
-WHERE Reported_brand IN ('Mr Vegas','Winmau','Fireball','Falken','Falken Tyres','Werner','Werner Ladders','Forum Copenhagen','Viaplay','TOM Insurance')
-GROUP BY AccessFlag;
-
-
-DELETE FROM Toolkit_Cleaned_OCR_Results
-WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
-  AND AccessFlag = 'Nordic';
-
-  DELETE FROM Toolkit_AzureModels_CombinedResults
-WHERE Event IN ('20260605_PDC_NORD_Day1Evening', '20260606_PDC_NORD_Day2Evening');
-
-
-SELECT SportsEvent, brand, COUNT(*)
-FROM Toolkit_Cleaned_OCR_Results
-WHERE SportsEvent IN ('20260605_PDC_NORD_Day1Evening/','20260606_PDC_NORD_Day2Evening/')
-  AND brand = 'Werner Ladders'
-GROUP BY SportsEvent, brand;
-
-
+WHERE AccessFlag = @specificAccessFlag
+  AND SportsEvent IN (SELECT SportsEvent FROM #SportEvents)
+GROUP BY SportsEvent, brand
+ORDER BY SportsEvent, brand;
